@@ -634,13 +634,31 @@ export function focusNextNode() {
   }
 }
 
+export function focusPrevNodeAtEnd(nodeId: string) {
+  const all = flattenVisible(getDisplayRoot());
+  const idx = all.findIndex(n => n.id === nodeId);
+  if (idx > 0) {
+    state.focusedNodeId = all[idx - 1].id;
+    focusCurrentNode(false);
+  }
+}
+
+export function focusNextNodeAtStart(nodeId: string) {
+  const all = flattenVisible(getDisplayRoot());
+  const idx = all.findIndex(n => n.id === nodeId);
+  if (idx < all.length - 1) {
+    state.focusedNodeId = all[idx + 1].id;
+    focusCurrentNode(true);
+  }
+}
+
 export function focusLastNode() {
   if (state.focusedNodeId) {
     focusCurrentNode();
   }
 }
 
-function focusCurrentNode() {
+function focusCurrentNode(atStart: boolean = false) {
   if (!state.focusedNodeId) return;
   const textEl = document.querySelector(
     `.node[data-id="${CSS.escape(state.focusedNodeId)}"] > .node-self .node-text`
@@ -654,7 +672,7 @@ function focusCurrentNode() {
     const sel = window.getSelection();
     if (sel && textEl.childNodes.length > 0) {
       range.selectNodeContents(textEl);
-      range.collapse(false);
+      range.collapse(atStart);
       sel.removeAllRanges();
       sel.addRange(range);
     }
