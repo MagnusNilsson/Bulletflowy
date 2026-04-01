@@ -1,0 +1,3 @@
+- create a repo public repo on github. No sensitive material, no test data.
+- Ship to prod, continuous deployment
+-
