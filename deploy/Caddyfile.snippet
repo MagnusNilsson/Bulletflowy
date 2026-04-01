@@ -1,4 +1,13 @@
 bulletflowy.yapt.fi {
 	bind 0.0.0.0 [::]
+
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
 	reverse_proxy localhost:3001
 }

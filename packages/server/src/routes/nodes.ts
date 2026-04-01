@@ -10,8 +10,8 @@ export async function nodeRoutes(app: FastifyInstance) {
         required: ['parentId', 'text'],
         properties: {
           parentId: { type: 'string' },
-          text: { type: 'string' },
-          description: { type: ['string', 'null'] },
+          text: { type: 'string', maxLength: 100000 },
+          description: { type: ['string', 'null'], maxLength: 100000 },
           position: { type: 'string' },
           afterId: { type: 'string' },
           beforeId: { type: 'string' },
@@ -42,8 +42,8 @@ export async function nodeRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         properties: {
-          text: { type: 'string' },
-          description: { type: ['string', 'null'] },
+          text: { type: 'string', maxLength: 100000 },
+          description: { type: ['string', 'null'], maxLength: 100000 },
           parentId: { type: 'string' },
           position: { type: 'string' },
           status: { type: 'string', enum: ['active', 'completed'] },
@@ -120,8 +120,8 @@ export async function nodeRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['textBefore', 'textAfter'],
         properties: {
-          textBefore: { type: 'string' },
-          textAfter: { type: 'string' },
+          textBefore: { type: 'string', maxLength: 100000 },
+          textAfter: { type: 'string', maxLength: 100000 },
         },
       },
     },

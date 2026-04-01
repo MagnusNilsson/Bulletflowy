@@ -23,13 +23,20 @@ function ensureArray<T>(val: T | T[] | undefined): T[] {
   return Array.isArray(val) ? val : [val];
 }
 
+const MAX_IMPORT_DEPTH = 100;
+
 function insertOutlines(
   db: Database.Database,
   outlines: OpmlOutline[],
   parentId: string,
   userId: string,
-  insertStmt: Database.Statement
+  insertStmt: Database.Statement,
+  depth: number = 0
 ): number {
+  if (depth > MAX_IMPORT_DEPTH) {
+    throw new Error(`Import exceeds maximum nesting depth of ${MAX_IMPORT_DEPTH}`);
+  }
+
   let count = 0;
   let prevPos: string | null = null;
 
@@ -47,7 +54,7 @@ function insertOutlines(
 
     const children = ensureArray(outline.outline);
     if (children.length > 0) {
-      count += insertOutlines(db, children, id, userId, insertStmt);
+      count += insertOutlines(db, children, id, userId, insertStmt, depth + 1);
     }
   }
 

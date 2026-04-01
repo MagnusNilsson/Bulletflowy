@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 import { v7 as uuidv7 } from 'uuid';
 import { generateKeyBetween } from 'fractional-indexing';
 
+const MAX_IMPORT_DEPTH = 100;
+
 interface StackEntry {
   depth: number;
   id: string;
@@ -99,6 +101,10 @@ export function importTxt(
         if (text.startsWith('[COMPLETE] ')) {
           status = 'completed';
           text = text.slice('[COMPLETE] '.length);
+        }
+
+        if (depth > MAX_IMPORT_DEPTH) {
+          throw new Error(`Import exceeds maximum nesting depth of ${MAX_IMPORT_DEPTH}`);
         }
 
         // Pop stack until we find a parent (entry with depth < current)

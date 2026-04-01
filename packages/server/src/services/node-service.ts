@@ -145,7 +145,7 @@ export function deleteNode(db: Database.Database, userId: string, id: string): {
     ) SELECT COUNT(*) as count FROM descendants
   `).get(id, userId) as { count: number };
 
-  db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
+  db.prepare('DELETE FROM nodes WHERE id = ? AND user_id = ?').run(id, userId);
 
   return { deletedCount: countResult.count };
 }

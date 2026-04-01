@@ -1,11 +1,13 @@
 import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
+import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type Database from 'better-sqlite3';
 import { createDatabase } from './db.js';
+import { cleanExpiredSessions } from './services/auth-service.js';
 import { authMiddleware } from './middleware/auth.js';
 import { authRoutes } from './routes/auth.js';
 import { treeRoutes } from './routes/tree.js';
@@ -30,11 +32,19 @@ export async function buildApp(dbPath?: string) {
   const db = createDatabase(dbPath);
   app.decorate('db', db);
 
+  // Clean expired sessions on startup and every hour
+  cleanExpiredSessions(db);
+  const sessionCleanupInterval = setInterval(() => cleanExpiredSessions(db), 60 * 60 * 1000);
+
   app.addHook('onClose', () => {
+    clearInterval(sessionCleanupInterval);
     db.close();
   });
 
   await app.register(fastifyCookie);
+  await app.register(fastifyRateLimit, {
+    global: false, // only apply where explicitly configured
+  });
   await app.register(fastifyMultipart, { limits: { fileSize: 10 * 1024 * 1024 } });
 
   // Auth middleware — runs on all /api/* routes, skips public auth endpoints
@@ -97,5 +107,5 @@ const isMain = process.argv[1] && (
 if (isMain) {
   const app = await buildApp();
   const port = parseInt(process.env.PORT ?? '3001', 10);
-  await app.listen({ port, host: '0.0.0.0' });
+  await app.listen({ port, host: '127.0.0.1' });
 }

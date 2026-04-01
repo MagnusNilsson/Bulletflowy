@@ -65,17 +65,17 @@ export function getSubtree(db: Database.Database, userId: string, nodeId: string
 
   const query = includeCompleted
     ? `WITH RECURSIVE descendants AS (
-        SELECT * FROM nodes WHERE id = ?
+        SELECT * FROM nodes WHERE id = ? AND user_id = ?
         UNION ALL
-        SELECT n.* FROM nodes n INNER JOIN descendants d ON n.parent_id = d.id
+        SELECT n.* FROM nodes n INNER JOIN descendants d ON n.parent_id = d.id WHERE n.user_id = ?
       ) SELECT * FROM descendants ORDER BY position`
     : `WITH RECURSIVE descendants AS (
-        SELECT * FROM nodes WHERE id = ?
+        SELECT * FROM nodes WHERE id = ? AND user_id = ?
         UNION ALL
-        SELECT n.* FROM nodes n INNER JOIN descendants d ON n.parent_id = d.id WHERE n.status = 'active'
+        SELECT n.* FROM nodes n INNER JOIN descendants d ON n.parent_id = d.id WHERE n.user_id = ? AND n.status = 'active'
       ) SELECT * FROM descendants ORDER BY position`;
 
-  const rows = db.prepare(query).all(nodeId) as DbRow[];
+  const rows = db.prepare(query).all(nodeId, userId, userId) as DbRow[];
 
   const nodeMap = new Map<string, TreeNode>();
   const childrenMap = new Map<string | null, TreeNode[]>();
