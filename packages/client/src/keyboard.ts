@@ -1,7 +1,7 @@
 import { state } from './state.js';
+import { getCursorPosition } from './cursor.js';
 import { focusActionBar } from './action-bar.js';
 import {
-  createSiblingAfter,
   deleteEmpty,
   toggleComplete,
   indentNode,
@@ -19,21 +19,6 @@ import {
   collapseAll,
   expandAll,
 } from './tree-renderer.js';
-
-/** Returns 'start' if cursor is at position 0, 'end' if at end, 'middle' otherwise */
-function getCursorPosition(el: HTMLElement): 'start' | 'end' | 'middle' {
-  const sel = window.getSelection();
-  if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return 'middle';
-  const fullLen = (el.textContent ?? '').length;
-  const range = sel.getRangeAt(0);
-  const preRange = document.createRange();
-  preRange.selectNodeContents(el);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const offset = preRange.toString().length;
-  if (offset === 0) return 'start';
-  if (offset >= fullLen) return 'end';
-  return 'middle';
-}
 
 export function initKeyboard() {
   document.addEventListener('keydown', handleKeyDown);
@@ -154,36 +139,21 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
-  // Left arrow at position 0: navigate to parent
+  // Left arrow at position 0: navigate to previous node
   if (e.key === 'ArrowLeft' && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-    const sel = window.getSelection();
-    if (sel && sel.isCollapsed) {
-      const range = sel.getRangeAt(0);
-      const preRange = document.createRange();
-      preRange.selectNodeContents(target);
-      preRange.setEnd(range.startContainer, range.startOffset);
-      if (preRange.toString().length === 0) {
-        e.preventDefault();
-        focusPrevNodeAtEnd(nodeId);
-        return;
-      }
+    if (getCursorPosition(target) === 'start') {
+      e.preventDefault();
+      focusPrevNodeAtEnd(nodeId);
+      return;
     }
   }
 
-  // Right arrow at end: navigate to next visible node
+  // Right arrow at end: navigate to next node
   if (e.key === 'ArrowRight' && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-    const sel = window.getSelection();
-    if (sel && sel.isCollapsed) {
-      const fullText = target.textContent ?? '';
-      const range = sel.getRangeAt(0);
-      const preRange = document.createRange();
-      preRange.selectNodeContents(target);
-      preRange.setEnd(range.startContainer, range.startOffset);
-      if (preRange.toString().length >= fullText.length) {
-        e.preventDefault();
-        focusNextNodeAtStart(nodeId);
-        return;
-      }
+    if (getCursorPosition(target) === 'end') {
+      e.preventDefault();
+      focusNextNodeAtStart(nodeId);
+      return;
     }
   }
 

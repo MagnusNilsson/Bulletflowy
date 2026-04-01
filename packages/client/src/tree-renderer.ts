@@ -2,6 +2,7 @@ import type { TreeNode } from '@bulletflowy/shared';
 import { state, findNode, getBreadcrumbs, persistCollapsedIds } from './state.js';
 import { updateNode, createNode, deleteNode, moveNode, splitNode } from './api.js';
 import { showSaved, showSaveError } from './save-indicator.js';
+import { getCursorOffset } from './cursor.js';
 import { initDragDrop } from './drag-drop.js';
 
 let debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -424,17 +425,6 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
   }
 }
 
-/** Get the cursor offset as a plain-text character position within a contenteditable */
-function getCursorOffset(el: HTMLElement): number {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return (el.textContent ?? '').length;
-
-  const range = sel.getRangeAt(0);
-  const preRange = document.createRange();
-  preRange.selectNodeContents(el);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  return preRange.toString().length;
-}
 
 export async function createSiblingAfter(nodeId: string) {
   if (!state.root) return;
