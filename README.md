@@ -1,6 +1,6 @@
 # Bulletflowy
 
-Self-hosted [Workflowy](https://workflowy.com) replacement -- a hierarchical bullet-point editor with no external dependencies.
+A self-hosted hierarchical bullet-point editor with no external dependencies.
 
 ## Features
 
