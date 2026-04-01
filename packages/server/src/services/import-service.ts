@@ -70,7 +70,7 @@ export function importOpml(
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
-    processEntities: false,
+    processEntities: true,
   });
 
   const parsed = parser.parse(xmlContent) as OpmlDoc;
