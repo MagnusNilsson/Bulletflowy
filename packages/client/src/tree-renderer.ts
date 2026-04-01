@@ -43,11 +43,20 @@ export function renderTree() {
 
   initDragDrop(container);
 
-  // Restore focus
+  // Restore focus — fall back to first visible node if target is outside visible hierarchy
   if (state.focusedNodeId) {
-    const textEl = container.querySelector(
+    let textEl = container.querySelector(
       `.node[data-id="${CSS.escape(state.focusedNodeId)}"] > .node-self .node-text`
     ) as HTMLElement | null;
+    if (!textEl) {
+      // Focused node not visible — recover to first visible node
+      const firstNode = container.querySelector('.node > .node-self .node-text') as HTMLElement | null;
+      if (firstNode) {
+        const firstNodeEl = firstNode.closest('.node') as HTMLElement | null;
+        if (firstNodeEl?.dataset.id) state.focusedNodeId = firstNodeEl.dataset.id;
+        textEl = firstNode;
+      }
+    }
     if (textEl) {
       textEl.focus();
       textEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
