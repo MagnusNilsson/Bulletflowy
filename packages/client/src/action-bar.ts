@@ -1,7 +1,8 @@
 import { searchNodes } from './api.js';
-import { zoomTo } from './tree-renderer.js';
+import { zoomTo, renderTree } from './tree-renderer.js';
+import { state, findNode, persistCollapsedIds } from './state.js';
 import { setDark, setLight } from './theme.js';
-import type { SearchResult } from '@bulletflowy/shared';
+import type { SearchResult, TreeNode } from '@bulletflowy/shared';
 
 // ── Command registry ──
 
@@ -239,7 +240,7 @@ function renderSearchResults(results: SearchResult[], container: HTMLElement, in
       el.addEventListener('click', () => {
         input.value = '';
         hideResults(container);
-        zoomTo(result.id);
+        navigateToNode(result.id);
       });
 
       container.appendChild(el);
@@ -248,6 +249,55 @@ function renderSearchResults(results: SearchResult[], container: HTMLElement, in
 
   container.classList.remove('hidden');
   document.getElementById('tree-container')!.style.display = 'none';
+}
+
+// ── Search navigation ──
+
+function navigateToNode(nodeId: string) {
+  if (!state.root) return;
+
+  const displayRoot = state.zoomedNodeId
+    ? findNode(state.root, state.zoomedNodeId)
+    : state.root;
+
+  if (displayRoot && isVisibleUnder(displayRoot, nodeId)) {
+    // Node is already in the viewport — just focus it
+    state.focusedNodeId = nodeId;
+    renderTree();
+    return;
+  }
+
+  // Node is not visible — find its parent and zoom there
+  const parent = findParentOf(state.root, nodeId);
+  if (!parent) return;
+
+  // Uncollapse the parent so the node is visible
+  state.collapsedIds.delete(parent.id);
+  persistCollapsedIds();
+  state.focusedNodeId = nodeId;
+  zoomTo(parent.id === state.root.id ? null : parent.id);
+}
+
+/** Check if nodeId is visible under the given display root (not hidden by a collapsed ancestor) */
+function isVisibleUnder(root: TreeNode, nodeId: string): boolean {
+  function walk(node: TreeNode): boolean {
+    if (node.id === nodeId) return true;
+    if (state.collapsedIds.has(node.id)) return false;
+    for (const child of node.children) {
+      if (walk(child)) return true;
+    }
+    return false;
+  }
+  return walk(root);
+}
+
+function findParentOf(root: TreeNode, childId: string): TreeNode | null {
+  for (const child of root.children) {
+    if (child.id === childId) return root;
+    const found = findParentOf(child, childId);
+    if (found) return found;
+  }
+  return null;
 }
 
 // ── Utilities ──
