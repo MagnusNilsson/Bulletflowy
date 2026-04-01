@@ -18,14 +18,6 @@ const commands: Command[] = [
     execute: showShortcutsModal,
   },
   {
-    name: '/delete-all',
-    description: 'Delete all nodes (keep root)',
-    execute: async () => {
-      await fetch('/api/nodes', { method: 'DELETE' });
-      window.dispatchEvent(new CustomEvent('bulletflowy:reload'));
-    },
-  },
-  {
     name: '/export',
     description: 'Export as OPML',
     execute: () => {

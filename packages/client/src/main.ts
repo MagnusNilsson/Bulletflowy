@@ -56,13 +56,6 @@ function buildAppUI() {
   darkBtn.textContent = 'Dark';
   toolbarRight.appendChild(darkBtn);
 
-  const deleteAllBtn = document.createElement('button');
-  deleteAllBtn.id = 'delete-all-btn';
-  deleteAllBtn.title = 'Delete all nodes';
-  deleteAllBtn.className = 'btn-danger';
-  deleteAllBtn.textContent = 'Delete All';
-  toolbarRight.appendChild(deleteAllBtn);
-
   const importBtn = document.createElement('button');
   importBtn.id = 'import-btn';
   importBtn.title = 'Import OPML';
@@ -149,11 +142,6 @@ function init() {
   // Logout
   document.getElementById('logout-btn')!.addEventListener('click', () => logout());
 
-  // Delete all (button + command)
-  document.getElementById('delete-all-btn')!.addEventListener('click', async () => {
-    await fetch('/api/nodes', { method: 'DELETE' });
-    loadTree();
-  });
   window.addEventListener('bulletflowy:reload', () => loadTree());
 
   // Import

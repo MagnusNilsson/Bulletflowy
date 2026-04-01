@@ -76,12 +76,6 @@ export async function nodeRoutes(app: FastifyInstance) {
     }
   });
 
-  app.delete('/api/nodes', (request) => {
-    const userId = request.user!.id;
-    app.db.prepare('DELETE FROM nodes WHERE parent_id IS NOT NULL AND user_id = ?').run(userId);
-    return { ok: true };
-  });
-
   app.post('/api/nodes/:id/move', {
     schema: {
       params: {
