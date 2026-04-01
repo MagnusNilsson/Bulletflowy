@@ -5,7 +5,7 @@ import { setDragTreeChanged } from './drag-drop.js';
 import { initKeyboard } from './keyboard.js';
 import { initActionBar } from './action-bar.js';
 import { initTheme } from './theme.js';
-import { checkAuth, setOnAuthenticated, logout } from './auth.js';
+import { checkAuth, setOnAuthenticated, logout, registerPasskey } from './auth.js';
 import { showSaveError } from './save-indicator.js';
 import './style.css';
 
@@ -82,6 +82,12 @@ function buildAppUI() {
   importFile.hidden = true;
   toolbarRight.appendChild(importFile);
 
+  const passkeyBtn = document.createElement('button');
+  passkeyBtn.id = 'passkey-btn';
+  passkeyBtn.title = 'Add a passkey to your account';
+  passkeyBtn.textContent = 'Add Passkey';
+  toolbarRight.appendChild(passkeyBtn);
+
   const logoutBtn = document.createElement('button');
   logoutBtn.id = 'logout-btn';
   logoutBtn.textContent = 'Logout';
@@ -133,6 +139,12 @@ function init() {
 
   // Dark mode
   initTheme();
+
+  // Passkey registration
+  document.getElementById('passkey-btn')!.addEventListener('click', async () => {
+    const ok = await registerPasskey();
+    if (ok) alert('Passkey registered successfully!');
+  });
 
   // Logout
   document.getElementById('logout-btn')!.addEventListener('click', () => logout());
