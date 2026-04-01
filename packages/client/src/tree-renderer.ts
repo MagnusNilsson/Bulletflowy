@@ -344,7 +344,7 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
     const idx = parent.children.findIndex(c => c.id === node.id);
     parent.children.splice(idx, 0, temp);
     state.focusedNodeId = node.id;
-    onTreeChanged?.();
+    renderTree();
 
     try {
       const created = await createNode({ parentId: parent.id, text: '', beforeId: node.id });
@@ -360,7 +360,7 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
     const temp = makeTempNode('');
     node.children.unshift(temp);
     state.focusedNodeId = temp.id;
-    onTreeChanged?.();
+    renderTree();
 
     try {
       await updateNode(node.id, { text: fullText });
@@ -379,7 +379,7 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
     const idx = parent.children.findIndex(c => c.id === node.id);
     parent.children.splice(idx + 1, 0, temp);
     state.focusedNodeId = temp.id;
-    onTreeChanged?.();
+    renderTree();
 
     try {
       await updateNode(node.id, { text: fullText });
@@ -405,7 +405,7 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
     const idx = parent.children.findIndex(c => c.id === node.id);
     parent.children.splice(idx + 1, 0, temp);
     state.focusedNodeId = temp.id;
-    onTreeChanged?.();
+    renderTree();
 
     try {
       const result = await splitNode(node.id, textBefore, textAfter);
@@ -616,21 +616,23 @@ export function focusLastVisibleNode() {
   }
 }
 
-export function focusPrevNode() {
+export function focusPrevNode(cursorHint?: 'start' | 'end' | 'middle') {
   const all = flattenVisible(getDisplayRoot());
   const idx = all.findIndex(n => n.id === state.focusedNodeId);
   if (idx > 0) {
     state.focusedNodeId = all[idx - 1].id;
-    focusCurrentNode();
+    const atStart = cursorHint === 'start' || cursorHint === 'middle';
+    focusCurrentNode(atStart);
   }
 }
 
-export function focusNextNode() {
+export function focusNextNode(cursorHint?: 'start' | 'end' | 'middle') {
   const all = flattenVisible(getDisplayRoot());
   const idx = all.findIndex(n => n.id === state.focusedNodeId);
   if (idx < all.length - 1) {
     state.focusedNodeId = all[idx + 1].id;
-    focusCurrentNode();
+    const atStart = cursorHint === 'start' || cursorHint === 'middle';
+    focusCurrentNode(atStart);
   }
 }
 

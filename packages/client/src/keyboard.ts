@@ -20,6 +20,21 @@ import {
   expandAll,
 } from './tree-renderer.js';
 
+/** Returns 'start' if cursor is at position 0, 'end' if at end, 'middle' otherwise */
+function getCursorPosition(el: HTMLElement): 'start' | 'end' | 'middle' {
+  const sel = window.getSelection();
+  if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return 'middle';
+  const fullLen = (el.textContent ?? '').length;
+  const range = sel.getRangeAt(0);
+  const preRange = document.createRange();
+  preRange.selectNodeContents(el);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  const offset = preRange.toString().length;
+  if (offset === 0) return 'start';
+  if (offset >= fullLen) return 'end';
+  return 'middle';
+}
+
 export function initKeyboard() {
   document.addEventListener('keydown', handleKeyDown);
 }
@@ -114,16 +129,15 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
-  // Arrow up/down: move focus
-  if (e.key === 'ArrowUp' && !e.altKey) {
+  // Arrow up/down: move focus, preserving cursor position at boundaries
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.altKey && !e.metaKey && !e.ctrlKey) {
     e.preventDefault();
-    focusPrevNode();
-    return;
-  }
-
-  if (e.key === 'ArrowDown' && !e.altKey) {
-    e.preventDefault();
-    focusNextNode();
+    const cursorPos = getCursorPosition(target);
+    if (e.key === 'ArrowUp') {
+      focusPrevNode(cursorPos);
+    } else {
+      focusNextNode(cursorPos);
+    }
     return;
   }
 
