@@ -5,3 +5,5 @@ dist/
 *.db-shm
 exports/
 .DS_Store
+PRD-outliner.md
+features.md
