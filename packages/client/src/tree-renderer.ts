@@ -291,6 +291,33 @@ export function zoomTo(nodeId: string | null) {
   renderTree();
 }
 
+let tempIdCounter = 0;
+
+function makeTempNode(text: string): TreeNode {
+  return {
+    id: `__temp_${++tempIdCounter}`,
+    text,
+    description: null,
+    status: 'active',
+    children: [],
+  };
+}
+
+function replaceTempId(oldId: string, newId: string) {
+  if (!state.root) return;
+  const node = findNode(state.root, oldId);
+  if (node) (node as any).id = newId;
+  if (state.focusedNodeId === oldId) state.focusedNodeId = newId;
+}
+
+function removeTempNode(tempId: string) {
+  if (!state.root) return;
+  const parent = findParentOf(state.root, tempId);
+  if (parent) {
+    parent.children = parent.children.filter(c => c.id !== tempId);
+  }
+}
+
 async function handleEnter(node: TreeNode, textEl: HTMLElement) {
   const fullText = textEl.textContent ?? '';
   const cursorOffset = getCursorOffset(textEl);
@@ -302,40 +329,89 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
   const parent = findParentOf(state.root, node.id);
   if (!parent) return;
 
-  try {
-    if (atStart && fullText.length > 0) {
-      // Cursor at start: create empty sibling ABOVE
+  if (atStart && fullText.length > 0) {
+    // Cursor at start: create empty sibling ABOVE
+    const temp = makeTempNode('');
+    const idx = parent.children.findIndex(c => c.id === node.id);
+    parent.children.splice(idx, 0, temp);
+    state.focusedNodeId = node.id;
+    onTreeChanged?.();
+
+    try {
       const created = await createNode({ parentId: parent.id, text: '', beforeId: node.id });
+      replaceTempId(temp.id, created.id);
       showSaved();
-      // Keep focus on the current node (the new one is above)
+    } catch (err: any) {
+      removeTempNode(temp.id);
+      onTreeChanged?.();
+      showSaveError('Failed: ' + err.message);
+    }
+  } else if (atEnd && hasChildren && !state.collapsedIds.has(node.id)) {
+    // Cursor at end, node has visible children: create empty first child
+    const temp = makeTempNode('');
+    node.children.unshift(temp);
+    state.focusedNodeId = temp.id;
+    onTreeChanged?.();
+
+    try {
+      await updateNode(node.id, { text: fullText });
+      const created = await createNode({ parentId: node.id, text: '', position: 'first' });
+      replaceTempId(temp.id, created.id);
+      if (state.focusedNodeId === temp.id) state.focusedNodeId = created.id;
+      showSaved();
+    } catch (err: any) {
+      removeTempNode(temp.id);
+      onTreeChanged?.();
+      showSaveError('Failed: ' + err.message);
+    }
+  } else if (atEnd) {
+    // Cursor at end, no children (or collapsed): create sibling immediately below
+    const temp = makeTempNode('');
+    const idx = parent.children.findIndex(c => c.id === node.id);
+    parent.children.splice(idx + 1, 0, temp);
+    state.focusedNodeId = temp.id;
+    onTreeChanged?.();
+
+    try {
+      await updateNode(node.id, { text: fullText });
+      const created = await createNode({ parentId: parent.id, text: '', afterId: node.id });
+      replaceTempId(temp.id, created.id);
+      if (state.focusedNodeId === temp.id) state.focusedNodeId = created.id;
+      showSaved();
+    } catch (err: any) {
+      removeTempNode(temp.id);
+      onTreeChanged?.();
+      showSaveError('Failed: ' + err.message);
+    }
+  } else {
+    // Cursor in middle: split node
+    const textBefore = fullText.slice(0, cursorOffset);
+    const textAfter = fullText.slice(cursorOffset);
+
+    // Optimistic: update current node text, create sibling with the rest + steal children
+    node.text = textBefore;
+    const temp = makeTempNode(textAfter);
+    temp.children = node.children;
+    node.children = [];
+    const idx = parent.children.findIndex(c => c.id === node.id);
+    parent.children.splice(idx + 1, 0, temp);
+    state.focusedNodeId = temp.id;
+    onTreeChanged?.();
+
+    try {
+      const result = await splitNode(node.id, textBefore, textAfter);
+      replaceTempId(temp.id, result.created.id);
+      if (state.focusedNodeId === temp.id) state.focusedNodeId = result.created.id;
+      showSaved();
+    } catch (err: any) {
+      // Revert: merge back
+      node.text = fullText;
+      node.children = temp.children;
+      removeTempNode(temp.id);
       state.focusedNodeId = node.id;
       onTreeChanged?.();
-    } else if (atEnd && hasChildren && !state.collapsedIds.has(node.id)) {
-      // Cursor at end, node has visible children: create empty first child
-      await updateNode(node.id, { text: fullText }); // ensure saved
-      const created = await createNode({ parentId: node.id, text: '', position: 'first' });
-      showSaved();
-      state.focusedNodeId = created.id;
-      onTreeChanged?.();
-    } else if (atEnd) {
-      // Cursor at end, no children (or collapsed): create sibling immediately below
-      await updateNode(node.id, { text: fullText }); // ensure saved
-      const created = await createNode({ parentId: parent.id, text: '', afterId: node.id });
-      showSaved();
-      state.focusedNodeId = created.id;
-      onTreeChanged?.();
-    } else {
-      // Cursor in middle: split node
-      const textBefore = fullText.slice(0, cursorOffset);
-      const textAfter = fullText.slice(cursorOffset);
-      const result = await splitNode(node.id, textBefore, textAfter);
-      showSaved();
-      state.focusedNodeId = result.created.id;
-      // Focus should be at start of the new node
-      onTreeChanged?.();
+      showSaveError('Failed: ' + err.message);
     }
-  } catch (err: any) {
-    showSaveError('Failed: ' + err.message);
   }
 }
 
