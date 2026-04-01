@@ -36,7 +36,7 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
-  // Escape: close action bar and return to last node, or blur node
+  // Escape: close action bar and return to last node, recover lost focus, or blur node
   if (e.key === 'Escape') {
     if (target === actionBarInput) {
       actionBarInput.value = '';
@@ -47,6 +47,9 @@ function handleKeyDown(e: KeyboardEvent) {
       target.blur();
       state.focusedNodeId = null;
       document.querySelectorAll('.node-self.focused').forEach(el => el.classList.remove('focused'));
+    } else {
+      // No node focused — recover by focusing first visible node
+      focusFirstNode();
     }
     return;
   }
