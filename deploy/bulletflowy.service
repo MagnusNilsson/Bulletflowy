@@ -1,0 +1,20 @@
+[Unit]
+Description=Bulletflowy
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/bulletflowy
+ExecStart=/usr/bin/node packages/server/dist/index.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=BULLETFLOWY_DB=/opt/bulletflowy/data/bulletflowy.db
+Environment=RP_ID=bulletflowy.yapt.fi
+Environment=RP_NAME=Bulletflowy
+Environment=ORIGIN=https://bulletflowy.yapt.fi
+
+[Install]
+WantedBy=multi-user.target
