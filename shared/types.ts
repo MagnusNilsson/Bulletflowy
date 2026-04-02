@@ -22,12 +22,19 @@ export interface TreeResponse {
 }
 
 export interface CreateNodeBody {
+  id?: string;
   parentId: string;
   text: string;
   description?: string | null;
   position?: string;
   afterId?: string;
   beforeId?: string;
+}
+
+export interface SplitNodeBody {
+  textBefore: string;
+  textAfter: string;
+  newId?: string;
 }
 
 export interface UpdateNodeBody {

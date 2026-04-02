@@ -1,4 +1,5 @@
 import type { TreeNode } from '@bulletflowy/shared';
+import { v7 as uuidv7 } from 'uuid';
 import { state, findNode, getBreadcrumbs, persistCollapsedIds } from './state.js';
 import { updateNode, createNode, deleteNode, moveNode, splitNode } from './api.js';
 import { showSaved, showSaveError } from './save-indicator.js';
@@ -301,11 +302,9 @@ export function zoomTo(nodeId: string | null) {
   renderTree();
 }
 
-let tempIdCounter = 0;
-
-function makeTempNode(text: string): TreeNode {
+function makeNode(text: string): TreeNode {
   return {
-    id: `__temp_${++tempIdCounter}`,
+    id: uuidv7(),
     text,
     description: null,
     status: 'active',
@@ -313,18 +312,11 @@ function makeTempNode(text: string): TreeNode {
   };
 }
 
-function replaceTempId(oldId: string, newId: string) {
+function removeNode(nodeId: string) {
   if (!state.root) return;
-  const node = findNode(state.root, oldId);
-  if (node) (node as any).id = newId;
-  if (state.focusedNodeId === oldId) state.focusedNodeId = newId;
-}
-
-function removeTempNode(tempId: string) {
-  if (!state.root) return;
-  const parent = findParentOf(state.root, tempId);
+  const parent = findParentOf(state.root, nodeId);
   if (parent) {
-    parent.children = parent.children.filter(c => c.id !== tempId);
+    parent.children = parent.children.filter(c => c.id !== nodeId);
   }
 }
 
@@ -341,55 +333,50 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
 
   if (atStart && fullText.length > 0) {
     // Cursor at start: create empty sibling ABOVE
-    const temp = makeTempNode('');
+    const newNode = makeNode('');
     const idx = parent.children.findIndex(c => c.id === node.id);
-    parent.children.splice(idx, 0, temp);
+    parent.children.splice(idx, 0, newNode);
     state.focusedNodeId = node.id;
     renderTree();
 
     try {
-      const created = await createNode({ parentId: parent.id, text: '', beforeId: node.id });
-      replaceTempId(temp.id, created.id);
+      await createNode({ id: newNode.id, parentId: parent.id, text: '', beforeId: node.id });
       showSaved();
     } catch (err: any) {
-      removeTempNode(temp.id);
+      removeNode(newNode.id);
       onTreeChanged?.();
       showSaveError('Failed: ' + err.message);
     }
   } else if (atEnd && hasChildren && !state.collapsedIds.has(node.id)) {
     // Cursor at end, node has visible children: create empty first child
-    const temp = makeTempNode('');
-    node.children.unshift(temp);
-    state.focusedNodeId = temp.id;
+    const newNode = makeNode('');
+    node.children.unshift(newNode);
+    state.focusedNodeId = newNode.id;
     renderTree();
 
     try {
       await updateNode(node.id, { text: fullText });
-      const created = await createNode({ parentId: node.id, text: '', position: 'first' });
-      replaceTempId(temp.id, created.id);
-      if (state.focusedNodeId === temp.id) state.focusedNodeId = created.id;
+      await createNode({ id: newNode.id, parentId: node.id, text: '', position: 'first' });
       showSaved();
     } catch (err: any) {
-      removeTempNode(temp.id);
+      removeNode(newNode.id);
       onTreeChanged?.();
       showSaveError('Failed: ' + err.message);
     }
   } else if (atEnd) {
     // Cursor at end, no children (or collapsed): create sibling immediately below
-    const temp = makeTempNode('');
+    const newNode = makeNode('');
     const idx = parent.children.findIndex(c => c.id === node.id);
-    parent.children.splice(idx + 1, 0, temp);
-    state.focusedNodeId = temp.id;
+    parent.children.splice(idx + 1, 0, newNode);
+    state.focusedNodeId = newNode.id;
     renderTree();
 
     try {
       await updateNode(node.id, { text: fullText });
-      const created = await createNode({ parentId: parent.id, text: '', afterId: node.id });
-      replaceTempId(temp.id, created.id);
-      if (state.focusedNodeId === temp.id) state.focusedNodeId = created.id;
+      await createNode({ id: newNode.id, parentId: parent.id, text: '', afterId: node.id });
       showSaved();
     } catch (err: any) {
-      removeTempNode(temp.id);
+      removeNode(newNode.id);
       onTreeChanged?.();
       showSaveError('Failed: ' + err.message);
     }
@@ -400,24 +387,22 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
 
     // Optimistic: update current node text, create sibling with the rest + steal children
     node.text = textBefore;
-    const temp = makeTempNode(textAfter);
-    temp.children = node.children;
+    const newNode = makeNode(textAfter);
+    newNode.children = node.children;
     node.children = [];
     const idx = parent.children.findIndex(c => c.id === node.id);
-    parent.children.splice(idx + 1, 0, temp);
-    state.focusedNodeId = temp.id;
+    parent.children.splice(idx + 1, 0, newNode);
+    state.focusedNodeId = newNode.id;
     renderTree();
 
     try {
-      const result = await splitNode(node.id, textBefore, textAfter);
-      replaceTempId(temp.id, result.created.id);
-      if (state.focusedNodeId === temp.id) state.focusedNodeId = result.created.id;
+      await splitNode(node.id, textBefore, textAfter, newNode.id);
       showSaved();
     } catch (err: any) {
       // Revert: merge back
       node.text = fullText;
-      node.children = temp.children;
-      removeTempNode(temp.id);
+      node.children = newNode.children;
+      removeNode(newNode.id);
       state.focusedNodeId = node.id;
       onTreeChanged?.();
       showSaveError('Failed: ' + err.message);

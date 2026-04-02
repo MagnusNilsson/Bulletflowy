@@ -74,7 +74,7 @@ export function createNode(db: Database.Database, userId: string, body: CreateNo
     position = generateKeyBetween(lastPos, null);
   }
 
-  const id = uuidv7();
+  const id = body.id ?? uuidv7();
   const now = new Date().toISOString();
 
   db.prepare(
@@ -215,7 +215,8 @@ export function splitNode(
   userId: string,
   id: string,
   textBefore: string,
-  textAfter: string
+  textAfter: string,
+  clientNewId?: string
 ): { original: NodeRecord; created: NodeRecord } {
   const node = getNode(db, userId, id);
   if (node.parent_id === null) {
@@ -228,7 +229,7 @@ export function splitNode(
   const before = idx < siblings.length - 1 ? siblings[idx + 1].position : null;
   const newPos = generateKeyBetween(after, before);
 
-  const newId = uuidv7();
+  const newId = clientNewId ?? uuidv7();
   const now = new Date().toISOString();
 
   const doSplit = db.transaction(() => {

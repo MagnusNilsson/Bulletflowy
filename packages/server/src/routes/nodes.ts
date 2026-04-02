@@ -9,6 +9,7 @@ export async function nodeRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['parentId', 'text'],
         properties: {
+          id: { type: 'string' },
           parentId: { type: 'string' },
           text: { type: 'string', maxLength: 100000 },
           description: { type: ['string', 'null'], maxLength: 100000 },
@@ -122,14 +123,15 @@ export async function nodeRoutes(app: FastifyInstance) {
         properties: {
           textBefore: { type: 'string', maxLength: 100000 },
           textAfter: { type: 'string', maxLength: 100000 },
+          newId: { type: 'string' },
         },
       },
     },
   }, (request, reply) => {
     try {
       const { id } = request.params as { id: string };
-      const { textBefore, textAfter } = request.body as { textBefore: string; textAfter: string };
-      return splitNode(app.db, request.user!.id, id, textBefore, textAfter);
+      const { textBefore, textAfter, newId } = request.body as { textBefore: string; textAfter: string; newId?: string };
+      return splitNode(app.db, request.user!.id, id, textBefore, textAfter, newId);
     } catch (err) {
       if (err instanceof NotFoundError) {
         reply.code(404);

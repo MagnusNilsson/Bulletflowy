@@ -47,10 +47,10 @@ export function updateNode(id: string, body: UpdateNodeBody): Promise<NodeRecord
   });
 }
 
-export function splitNode(id: string, textBefore: string, textAfter: string): Promise<{ original: NodeRecord; created: NodeRecord }> {
+export function splitNode(id: string, textBefore: string, textAfter: string, newId?: string): Promise<{ original: NodeRecord; created: NodeRecord }> {
   return request(`/nodes/${id}/split`, {
     method: 'POST',
-    body: JSON.stringify({ textBefore, textAfter }),
+    body: JSON.stringify({ textBefore, textAfter, newId }),
   });
 }
 
