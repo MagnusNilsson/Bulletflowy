@@ -80,7 +80,6 @@ function activateDrag() {
   dragState.nodeEl.classList.add('dragging');
   document.body.appendChild(dragState.ghost);
   document.body.appendChild(dragState.indicator);
-  (dragState.nodeEl as HTMLElement).setPointerCapture?.(0);
 }
 
 function onPointerMove(e: PointerEvent) {
