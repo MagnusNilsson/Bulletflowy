@@ -1,5 +1,6 @@
 import { updateNode } from './api.js';
 import { showSaved, showSaveError } from './save-indicator.js';
+import { state } from './state.js';
 
 interface DragState {
   nodeId: string;
@@ -208,40 +209,31 @@ async function onPointerUp(_e: PointerEvent) {
   const nodeId = dragState.nodeId;
   dragState = null;
 
-  if (!targetId || !position) return;
+  if (!targetId || !position || nodeId === targetId) return;
 
-  // Determine new parent and position
   const targetEl = document.querySelector(`.node[data-id="${CSS.escape(targetId)}"]`) as HTMLElement;
   if (!targetEl) return;
 
-  const targetParent = targetEl.closest('.node-children')?.closest('.node') as HTMLElement | null;
-  const parentId = targetParent?.dataset.id;
+  // Find the target's parent ID from the DOM, or fall back to the display root
+  const targetChildrenContainer = targetEl.parentElement; // .node-children
+  const targetParentNode = targetChildrenContainer?.closest('.node') as HTMLElement | null;
+  const displayRootId = state.zoomedNodeId ?? state.root?.id;
+  const parentId = targetParentNode?.dataset.id ?? displayRootId;
 
-  if (!parentId) {
-    // Target is top-level — parent is the zoomed/root node
-    // We can't easily get the root ID from DOM, so just reload
-    // For now, use the PATCH approach with parentId + position from server
-  }
+  if (!parentId) return;
 
   try {
-    // Simple approach: move node to be a sibling of the target
-    // We need the target's parentId, so we'll use PATCH with the target's parent
-    // This is a simplification — a full implementation would calculate fractional positions
-    // For now, just use the move API in the right direction or PATCH
-    // TODO: enhance with proper position calculation
-    // For MVP, after drop we just reload the tree
-    if (targetId && nodeId !== targetId) {
-      // Get target node's parent from DOM
-      const targetNodeChildren = targetEl.parentElement;
-      const targetParentNode = targetNodeChildren?.closest('.node') as HTMLElement | null;
-      const newParentId = targetParentNode?.dataset.id;
+    const update: Parameters<typeof updateNode>[1] = { parentId };
 
-      if (newParentId) {
-        await updateNode(nodeId, { parentId: newParentId });
-        showSaved();
-        treeChangedCallback?.();
-      }
+    if (position === 'after') {
+      update.afterId = targetId;
+    } else {
+      update.beforeId = targetId;
     }
+
+    await updateNode(nodeId, update);
+    showSaved();
+    treeChangedCallback?.();
   } catch (err: any) {
     showSaveError('Move failed: ' + err.message);
   }

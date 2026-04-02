@@ -11,9 +11,11 @@
   "dependencies": {
     "@bulletflowy/shared": "*",
     "@simplewebauthn/browser": "^13.3.0",
-    "fractional-indexing": "^3.2.0"
+    "fractional-indexing": "^3.2.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@types/uuid": "^10.0.0",
     "typescript": "^5.7.3",
     "vite": "^6.2.4"
   }

@@ -42,6 +42,8 @@ export interface UpdateNodeBody {
   description?: string | null;
   parentId?: string;
   position?: string;
+  afterId?: string;
+  beforeId?: string;
   status?: 'active' | 'completed';
 }
 

@@ -47,6 +47,8 @@ export async function nodeRoutes(app: FastifyInstance) {
           description: { type: ['string', 'null'], maxLength: 100000 },
           parentId: { type: 'string' },
           position: { type: 'string' },
+          afterId: { type: 'string' },
+          beforeId: { type: 'string' },
           status: { type: 'string', enum: ['active', 'completed'] },
         },
       },

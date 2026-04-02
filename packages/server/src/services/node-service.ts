@@ -109,7 +109,25 @@ export function updateNode(db: Database.Database, userId: string, id: string, bo
     sets.push('parent_id = ?');
     values.push(body.parentId);
   }
-  if (body.position !== undefined) {
+  if (body.afterId) {
+    const newParentId = body.parentId ?? node.parent_id!;
+    const siblings = getSiblings(db, userId, newParentId);
+    const idx = siblings.findIndex(s => s.id === body.afterId);
+    if (idx === -1) throw new NotFoundError(`Node ${body.afterId} not found among siblings`);
+    const after = siblings[idx].position;
+    const before = idx < siblings.length - 1 ? siblings[idx + 1].position : null;
+    sets.push('position = ?');
+    values.push(generateKeyBetween(after, before));
+  } else if (body.beforeId) {
+    const newParentId = body.parentId ?? node.parent_id!;
+    const siblings = getSiblings(db, userId, newParentId);
+    const idx = siblings.findIndex(s => s.id === body.beforeId);
+    if (idx === -1) throw new NotFoundError(`Node ${body.beforeId} not found among siblings`);
+    const before = siblings[idx].position;
+    const after = idx > 0 ? siblings[idx - 1].position : null;
+    sets.push('position = ?');
+    values.push(generateKeyBetween(after, before));
+  } else if (body.position !== undefined) {
     sets.push('position = ?');
     values.push(body.position);
   }
