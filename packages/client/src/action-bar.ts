@@ -1,6 +1,6 @@
 import { searchNodes } from './api.js';
 import { zoomTo, renderTree } from './tree-renderer.js';
-import { state, findNode, persistCollapsedIds } from './state.js';
+import { state, findNode, findParentOf, persistCollapsedIds } from './state.js';
 import { setDark, setLight } from './theme.js';
 import type { SearchResult, TreeNode } from '@bulletflowy/shared';
 
@@ -289,15 +289,6 @@ function isVisibleUnder(root: TreeNode, nodeId: string): boolean {
     return false;
   }
   return walk(root);
-}
-
-function findParentOf(root: TreeNode, childId: string): TreeNode | null {
-  for (const child of root.children) {
-    if (child.id === childId) return root;
-    const found = findParentOf(child, childId);
-    if (found) return found;
-  }
-  return null;
 }
 
 // ── Utilities ──

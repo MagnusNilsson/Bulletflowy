@@ -40,6 +40,16 @@ export function findNode(node: TreeNode, id: string): TreeNode | null {
   return null;
 }
 
+/** Find the parent of a node by child ID */
+export function findParentOf(root: TreeNode, childId: string): TreeNode | null {
+  for (const child of root.children) {
+    if (child.id === childId) return root;
+    const found = findParentOf(child, childId);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** Get breadcrumb path from root to node */
 export function getBreadcrumbs(root: TreeNode, targetId: string): TreeNode[] {
   const path: TreeNode[] = [];
@@ -56,24 +66,4 @@ export function getBreadcrumbs(root: TreeNode, targetId: string): TreeNode[] {
 
   walk(root);
   return path;
-}
-
-/** Get all visible nodes in depth-first order */
-export function getVisibleNodes(node: TreeNode, showCompleted: boolean): TreeNode[] {
-  const result: TreeNode[] = [];
-
-  function walk(n: TreeNode) {
-    if (!showCompleted && n.status === 'completed') return;
-    result.push(n);
-    for (const child of n.children) {
-      walk(child);
-    }
-  }
-
-  // Skip the root/zoomed node itself, show its children
-  for (const child of node.children) {
-    walk(child);
-  }
-
-  return result;
 }

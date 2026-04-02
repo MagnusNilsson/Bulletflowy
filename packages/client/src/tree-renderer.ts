@@ -1,6 +1,6 @@
 import type { TreeNode } from '@bulletflowy/shared';
 import { v7 as uuidv7 } from 'uuid';
-import { state, findNode, getBreadcrumbs, persistCollapsedIds } from './state.js';
+import { state, findNode, findParentOf, getBreadcrumbs, persistCollapsedIds } from './state.js';
 import { updateNode, createNode, deleteNode, moveNode, splitNode } from './api.js';
 import { showSaved, showSaveError } from './save-indicator.js';
 import { getCursorOffset } from './cursor.js';
@@ -43,7 +43,7 @@ export function renderTree() {
     }
   }
 
-  initDragDrop(container);
+  initDragDrop(container, () => onTreeChanged?.());
 
   // Restore focus — fall back to first visible node if target is outside visible hierarchy
   if (state.focusedNodeId) {
@@ -125,13 +125,6 @@ function renderNode(node: TreeNode): HTMLElement {
     });
   }
   selfEl.appendChild(collapseBtn);
-
-  // Drag handle (hidden, used by drag-drop via class)
-  const dragHandle = document.createElement('div');
-  dragHandle.className = 'node-drag-handle';
-  dragHandle.textContent = '\u2807';
-  dragHandle.setAttribute('tabindex', '-1');
-  selfEl.appendChild(dragHandle);
 
   // Bullet
   const bullet = document.createElement('div');
@@ -427,15 +420,6 @@ export async function createSiblingAfter(nodeId: string) {
   }
 }
 
-function findParentOf(root: TreeNode, childId: string): TreeNode | null {
-  for (const child of root.children) {
-    if (child.id === childId) return root;
-    const found = findParentOf(child, childId);
-    if (found) return found;
-  }
-  return null;
-}
-
 export async function deleteEmpty(nodeId: string) {
   if (!state.root) return;
 
@@ -611,25 +595,7 @@ export function focusNextNode(cursorHint?: 'start' | 'end' | 'middle') {
   }
 }
 
-export function focusPrevNodeAtEnd(nodeId: string) {
-  const all = flattenVisible(getDisplayRoot());
-  const idx = all.findIndex(n => n.id === nodeId);
-  if (idx > 0) {
-    state.focusedNodeId = all[idx - 1].id;
-    focusCurrentNode(false);
-  }
-}
-
-export function focusNextNodeAtStart(nodeId: string) {
-  const all = flattenVisible(getDisplayRoot());
-  const idx = all.findIndex(n => n.id === nodeId);
-  if (idx < all.length - 1) {
-    state.focusedNodeId = all[idx + 1].id;
-    focusCurrentNode(true);
-  }
-}
-
-export function focusLastNode() {
+export function refocusCurrentNode() {
   if (state.focusedNodeId) {
     focusCurrentNode();
   }

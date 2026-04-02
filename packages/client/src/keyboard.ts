@@ -12,9 +12,7 @@ import {
   focusNextNode,
   focusFirstNode,
   focusLastVisibleNode,
-  focusLastNode,
-  focusPrevNodeAtEnd,
-  focusNextNodeAtStart,
+  refocusCurrentNode,
   toggleCollapse,
   collapseAll,
   expandAll,
@@ -44,7 +42,7 @@ function handleKeyDown(e: KeyboardEvent) {
       actionBarInput.value = '';
       actionBarInput.blur();
       actionBarInput.dispatchEvent(new Event('input'));
-      focusLastNode();
+      refocusCurrentNode();
     } else if (isNodeText) {
       target.blur();
       state.focusedNodeId = null;
@@ -139,20 +137,20 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
-  // Left arrow at position 0: navigate to previous node
+  // Left arrow at position 0: navigate to previous node (cursor at end)
   if (e.key === 'ArrowLeft' && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
     if (getCursorPosition(target) === 'start') {
       e.preventDefault();
-      focusPrevNodeAtEnd(nodeId);
+      focusPrevNode('end');
       return;
     }
   }
 
-  // Right arrow at end: navigate to next node
+  // Right arrow at end: navigate to next node (cursor at start)
   if (e.key === 'ArrowRight' && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
     if (getCursorPosition(target) === 'end') {
       e.preventDefault();
-      focusNextNodeAtStart(nodeId);
+      focusNextNode('start');
       return;
     }
   }

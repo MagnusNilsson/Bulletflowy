@@ -16,12 +16,8 @@ interface DragState {
 let dragState: DragState | null = null;
 let treeChangedCallback: (() => void) | null = null;
 
-export function setDragTreeChanged(cb: () => void) {
-  treeChangedCallback = cb;
-}
-
-export function initDragDrop(container: HTMLElement) {
-  // Use event delegation on the container
+export function initDragDrop(container: HTMLElement, onTreeChanged?: () => void) {
+  if (onTreeChanged) treeChangedCallback = onTreeChanged;
   container.addEventListener('pointerdown', onPointerDown);
 }
 

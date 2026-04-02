@@ -1,7 +1,6 @@
 import { fetchTree, importOpml, exportOpml, importTxt, exportTxt } from './api.js';
 import { state } from './state.js';
 import { renderTree, setOnTreeChanged, zoomTo, collapseAll } from './tree-renderer.js';
-import { setDragTreeChanged } from './drag-drop.js';
 import { initKeyboard } from './keyboard.js';
 import { initActionBar } from './action-bar.js';
 import { initTheme } from './theme.js';
@@ -115,7 +114,6 @@ function init() {
   // Tree change callback (reload from server)
   const onTreeChanged = () => loadTree();
   setOnTreeChanged(onTreeChanged);
-  setDragTreeChanged(onTreeChanged);
 
   // Keyboard
   initKeyboard();
