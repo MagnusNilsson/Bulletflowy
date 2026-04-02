@@ -415,9 +415,14 @@ button.btn-danger {
   justify-content: center;
   width: 20px;
   height: 24px;
-  cursor: pointer;
+  cursor: grab;
   flex-shrink: 0;
   user-select: none;
+  touch-action: none;
+}
+
+.node-bullet:active {
+  cursor: grabbing;
 }
 
 .node-bullet::after {
@@ -514,7 +519,7 @@ button.btn-danger {
 }
 
 .drop-indicator {
-  position: absolute;
+  position: fixed;
   height: 2px;
   background: var(--drop-color);
   pointer-events: none;

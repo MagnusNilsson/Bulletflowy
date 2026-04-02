@@ -25,7 +25,7 @@ export function initDragDrop(container: HTMLElement) {
 }
 
 function onPointerDown(e: PointerEvent) {
-  const handle = (e.target as HTMLElement).closest('.node-drag-handle') as HTMLElement | null;
+  const handle = (e.target as HTMLElement).closest('.node-bullet') as HTMLElement | null;
   if (!handle) return;
 
   const nodeEl = handle.closest('.node') as HTMLElement;
@@ -33,8 +33,6 @@ function onPointerDown(e: PointerEvent) {
 
   const nodeId = nodeEl.dataset.id;
   if (!nodeId) return;
-
-  e.preventDefault();
 
   const ghost = document.createElement('div');
   ghost.className = 'drag-ghost';
@@ -72,6 +70,8 @@ function onPointerDown(e: PointerEvent) {
   document.addEventListener('pointermove', onPointerMove);
   document.addEventListener('pointerup', onPointerUp);
   document.addEventListener('pointercancel', onPointerUp);
+  document.addEventListener('keydown', onDragKeyDown);
+  document.addEventListener('contextmenu', onDragContextMenu);
 }
 
 function activateDrag() {
@@ -126,13 +126,9 @@ function onPointerMove(e: PointerEvent) {
   const midY = rect.top + rect.height / 2;
   const isBelow = e.clientY > midY;
 
-  const y = isBelow ? rect.bottom : rect.top;
-  const container = document.getElementById('tree-container')!;
-  const containerRect = container.getBoundingClientRect();
-
   dragState.indicator.style.display = 'block';
-  dragState.indicator.style.top = `${y - containerRect.top + container.scrollTop}px`;
-  dragState.indicator.style.left = `${rect.left - containerRect.left}px`;
+  dragState.indicator.style.top = `${isBelow ? rect.bottom : rect.top}px`;
+  dragState.indicator.style.left = `${rect.left}px`;
   dragState.indicator.style.width = `${rect.width}px`;
   dragState.indicator.dataset.targetId = targetNodeEl.dataset.id;
   dragState.indicator.dataset.position = isBelow ? 'after' : 'before';
@@ -147,10 +143,47 @@ function onPointerMove(e: PointerEvent) {
   }
 }
 
-async function onPointerUp(_e: PointerEvent) {
+function suppressClick(e: Event) {
+  e.stopPropagation();
+  e.preventDefault();
+}
+
+function removeDragListeners() {
   document.removeEventListener('pointermove', onPointerMove);
   document.removeEventListener('pointerup', onPointerUp);
   document.removeEventListener('pointercancel', onPointerUp);
+  document.removeEventListener('keydown', onDragKeyDown);
+  document.removeEventListener('contextmenu', onDragContextMenu);
+}
+
+function cancelDrag() {
+  removeDragListeners();
+  if (!dragState) return;
+  if (dragState.longPressTimer) clearTimeout(dragState.longPressTimer);
+  if (dragState.active) {
+    dragState.nodeEl.classList.remove('dragging');
+    dragState.ghost.remove();
+    dragState.indicator.remove();
+  }
+  dragState = null;
+}
+
+function onDragKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && dragState) {
+    e.preventDefault();
+    cancelDrag();
+  }
+}
+
+function onDragContextMenu(e: Event) {
+  if (dragState) {
+    e.preventDefault();
+    cancelDrag();
+  }
+}
+
+async function onPointerUp(_e: PointerEvent) {
+  removeDragListeners();
 
   if (!dragState) return;
 
@@ -162,6 +195,9 @@ async function onPointerUp(_e: PointerEvent) {
     dragState = null;
     return;
   }
+
+  // Suppress the click that follows pointerup so it doesn't zoom into a node
+  document.addEventListener('click', suppressClick, { capture: true, once: true });
 
   dragState.nodeEl.classList.remove('dragging');
   dragState.ghost.remove();
