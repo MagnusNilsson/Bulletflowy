@@ -305,6 +305,27 @@ button.btn-danger {
   font-size: 14px;
 }
 
+.export-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.export-btn:last-child {
+  margin-bottom: 0;
+}
+
+.export-btn:hover {
+  background: var(--accent);
+  color: white;
+}
+
 /* Tree */
 #tree-container {
   padding: 8px 0;
@@ -473,8 +494,20 @@ button.btn-danger {
   margin-bottom: 2px;
 }
 
-.node-description:empty {
+.node-description:empty:not(:focus) {
   display: none;
+}
+
+.node-description:focus {
+  outline: none;
+  background: var(--bg-hover, rgba(128, 128, 128, 0.1));
+  border-radius: 3px;
+}
+
+.node-description:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  opacity: 0.6;
 }
 
 /* Collapsed state */

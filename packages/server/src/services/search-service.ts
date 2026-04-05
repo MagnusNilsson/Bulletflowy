@@ -9,10 +9,12 @@ interface DbRow {
   status: 'active' | 'completed';
 }
 
-export function searchNodes(db: Database.Database, userId: string, query: string): SearchResult[] {
+export function searchNodes(db: Database.Database, userId: string, query: string, includeCompleted = false): SearchResult[] {
   if (!query.trim()) return [];
 
   const pattern = `%${query}%`;
+
+  const statusClause = includeCompleted ? '' : "AND status != 'completed'";
 
   const rows = db.prepare(`
     SELECT id, parent_id, text, description, status
@@ -20,6 +22,7 @@ export function searchNodes(db: Database.Database, userId: string, query: string
     WHERE user_id = ?
       AND (text LIKE ? OR description LIKE ?)
       AND parent_id IS NOT NULL
+      ${statusClause}
     ORDER BY updated_at DESC
     LIMIT 50
   `).all(userId, pattern, pattern) as DbRow[];

@@ -9,11 +9,12 @@ export async function searchRoutes(app: FastifyInstance) {
         required: ['q'],
         properties: {
           q: { type: 'string' },
+          includeCompleted: { type: 'string', default: 'false' },
         },
       },
     },
   }, (request) => {
-    const { q } = request.query as { q: string };
-    return { results: searchNodes(app.db, request.user!.id, q) };
+    const { q, includeCompleted } = request.query as { q: string; includeCompleted?: string };
+    return { results: searchNodes(app.db, request.user!.id, q, includeCompleted === 'true') };
   });
 }

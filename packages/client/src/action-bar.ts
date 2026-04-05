@@ -102,7 +102,7 @@ function onInput(input: HTMLInputElement, resultsEl: HTMLElement) {
   // Search mode — debounced
   debounceTimer = setTimeout(async () => {
     try {
-      const response = await searchNodes(raw.trim());
+      const response = await searchNodes(raw.trim(), state.showCompleted);
       renderSearchResults(response.results, resultsEl, input);
     } catch {
       // ignore

@@ -186,6 +186,7 @@ function renderNode(node: TreeNode): HTMLElement {
     const descEl = document.createElement('div');
     descEl.className = 'node-description';
     descEl.textContent = node.description;
+    makeDescriptionEditable(descEl, node);
     el.appendChild(descEl);
   }
 
@@ -639,9 +640,13 @@ function showContextMenu(node: TreeNode, x: number, y: number) {
       label: node.status === 'active' ? 'Complete' : 'Reactivate',
       action: () => toggleComplete(node.id),
     },
+    ...(node.description === null ? [{
+      label: 'Add note',
+      action: () => startInlineNote(node),
+    }] : []),
     {
-      label: node.description !== null ? 'Edit note' : 'Add note',
-      action: () => promptNote(node),
+      label: 'Export',
+      action: () => showExportModal(node),
     },
     {
       label: 'Delete',
@@ -704,16 +709,162 @@ function showContextMenu(node: TreeNode, x: number, y: number) {
   });
 }
 
-async function promptNote(node: TreeNode) {
-  const current = node.description ?? '';
-  const note = prompt('Note:', current);
-  if (note === null) return; // cancelled
-  const value = note.trim() || null;
-  try {
-    await updateNode(node.id, { description: value });
-    showSaved();
-    onTreeChanged?.();
-  } catch (err: any) {
-    showSaveError('Update failed: ' + err.message);
+// ── Export helpers ──
+
+function nodeToPlainText(node: TreeNode, depth: number): string {
+  const indent = '  '.repeat(depth);
+  let txt = `${indent}- ${node.text}\n`;
+  if (node.description) {
+    const noteIndent = '  '.repeat(depth) + '  ';
+    for (const line of node.description.split('\n')) {
+      txt += `${noteIndent}${line}\n`;
+    }
   }
+  for (const child of node.children) {
+    txt += nodeToPlainText(child, depth + 1);
+  }
+  return txt;
+}
+
+function nodeToHtml(node: TreeNode): string {
+  let html = `<li>${escapeHtml(node.text)}`;
+  if (node.children.length > 0) {
+    html += '<ul>';
+    for (const child of node.children) {
+      html += nodeToHtml(child);
+    }
+    html += '</ul>';
+  }
+  html += '</li>';
+  return html;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function showExportModal(node: TreeNode) {
+  document.getElementById('export-modal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'export-modal';
+  overlay.className = 'modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const title = document.createElement('h2');
+  title.textContent = 'Export';
+  modal.appendChild(title);
+
+  const styledBtn = document.createElement('button');
+  styledBtn.className = 'export-btn';
+  styledBtn.textContent = 'Styled bullet list';
+  styledBtn.addEventListener('click', async () => {
+    const html = '<ul>' + nodeToHtml(node) + '</ul>';
+    const plain = nodeToPlainText(node, 0);
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([plain], { type: 'text/plain' }),
+      }),
+    ]);
+    styledBtn.textContent = 'Copied!';
+    setTimeout(() => overlay.remove(), 600);
+  });
+  modal.appendChild(styledBtn);
+
+  const plainBtn = document.createElement('button');
+  plainBtn.className = 'export-btn';
+  plainBtn.textContent = 'Plain text';
+  plainBtn.addEventListener('click', async () => {
+    const plain = nodeToPlainText(node, 0);
+    await navigator.clipboard.writeText(plain);
+    plainBtn.textContent = 'Copied!';
+    setTimeout(() => overlay.remove(), 600);
+  });
+  modal.appendChild(plainBtn);
+
+  overlay.appendChild(modal);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  document.addEventListener('keydown', function handler(e) {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', handler);
+    }
+  });
+
+  document.body.appendChild(overlay);
+}
+
+function startInlineNote(node: TreeNode) {
+  const nodeEl = document.querySelector(`.node[data-id="${node.id}"]`);
+  if (!nodeEl) return;
+
+  // Create or find existing description element
+  let descEl = nodeEl.querySelector('.node-description') as HTMLElement | null;
+  if (!descEl) {
+    descEl = document.createElement('div');
+    descEl.className = 'node-description';
+    // Insert before children container or at end
+    const childrenEl = nodeEl.querySelector('.node-children');
+    if (childrenEl) {
+      nodeEl.insertBefore(descEl, childrenEl);
+    } else {
+      nodeEl.appendChild(descEl);
+    }
+  }
+
+  makeDescriptionEditable(descEl, node);
+  descEl.focus();
+}
+
+function makeDescriptionEditable(descEl: HTMLElement, node: TreeNode) {
+  descEl.contentEditable = 'true';
+  descEl.dataset.placeholder = 'Add a note...';
+
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const saveNote = () => {
+    const value = (descEl.textContent ?? '').trim() || null;
+    node.description = value;
+    updateNode(node.id, { description: value })
+      .then(() => showSaved())
+      .catch((err) => showSaveError('Save failed: ' + err.message));
+  };
+
+  descEl.addEventListener('input', () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNote, 300);
+  });
+
+  descEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      descEl.blur();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      descEl.blur();
+    }
+  });
+
+  descEl.addEventListener('blur', () => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveNote();
+    }
+    const value = (descEl.textContent ?? '').trim();
+    if (!value) {
+      descEl.remove();
+      node.description = null;
+    }
+  });
 }

@@ -65,8 +65,8 @@ export function moveNode(id: string, body: MoveNodeBody): Promise<NodeRecord> {
   });
 }
 
-export function searchNodes(q: string): Promise<SearchResponse> {
-  return request(`/search?q=${encodeURIComponent(q)}`);
+export function searchNodes(q: string, includeCompleted: boolean): Promise<SearchResponse> {
+  return request(`/search?q=${encodeURIComponent(q)}&includeCompleted=${includeCompleted}`);
 }
 
 export async function importOpml(file: File, mode: 'replace' | 'merge'): Promise<{ importedCount: number }> {
