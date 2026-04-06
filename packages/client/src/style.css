@@ -566,6 +566,7 @@ button.btn-danger {
   pointer-events: none;
   z-index: 100;
   border-radius: 1px;
+  transition: left 0.08s ease-out, width 0.08s ease-out;
 }
 
 .drop-indicator::before {

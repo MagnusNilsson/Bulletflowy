@@ -1,6 +1,20 @@
 import { updateNode } from './api.js';
 import { showSaved, showSaveError } from './save-indicator.js';
-import { state } from './state.js';
+import { state, findNode } from './state.js';
+
+interface VisibleNode {
+  id: string;
+  depth: number;         // 1 = child of display root
+  top: number;           // document-relative top of .node-self
+  bottom: number;        // document-relative bottom of .node-self
+}
+
+interface DropTarget {
+  parentId: string;
+  afterId?: string;
+  beforeId?: string;
+  depth: number;
+}
 
 interface DragState {
   nodeId: string;
@@ -11,6 +25,11 @@ interface DragState {
   startY: number;
   active: boolean;
   longPressTimer: ReturnType<typeof setTimeout> | null;
+  visibleNodes: VisibleNode[];
+  indent: number;
+  baseLeft: number;
+  containerRight: number;
+  initialScrollY: number;
 }
 
 let dragState: DragState | null = null;
@@ -51,6 +70,11 @@ function onPointerDown(e: PointerEvent) {
     startY: e.clientY,
     active: false,
     longPressTimer: null,
+    visibleNodes: [],
+    indent: 24,
+    baseLeft: 0,
+    containerRight: 0,
+    initialScrollY: 0,
   };
 
   // For touch: require long press
@@ -60,8 +84,6 @@ function onPointerDown(e: PointerEvent) {
         activateDrag();
       }
     }, 300);
-  } else {
-    // For mouse: activate on move threshold
   }
 
   document.addEventListener('pointermove', onPointerMove);
@@ -77,6 +99,150 @@ function activateDrag() {
   dragState.nodeEl.classList.add('dragging');
   document.body.appendChild(dragState.ghost);
   document.body.appendChild(dragState.indicator);
+
+  // Cache visible nodes and geometry
+  dragState.visibleNodes = buildVisibleNodes(dragState.nodeId);
+  dragState.indent = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--node-indent')) || 24;
+  dragState.initialScrollY = window.scrollY;
+
+  // Compute baseLeft from the first visible node at depth 1
+  const depthOneNode = dragState.visibleNodes.find(n => n.depth === 1);
+  if (depthOneNode) {
+    const el = document.querySelector(`.node[data-id="${CSS.escape(depthOneNode.id)}"]`);
+    const selfEl = el?.querySelector(':scope > .node-self') as HTMLElement | null;
+    if (selfEl) {
+      dragState.baseLeft = selfEl.getBoundingClientRect().left;
+    }
+  }
+
+  const container = document.getElementById('tree-container');
+  if (container) {
+    dragState.containerRight = container.getBoundingClientRect().right;
+  }
+}
+
+function buildVisibleNodes(draggedId: string): VisibleNode[] {
+  const nodes: VisibleNode[] = [];
+  const container = document.getElementById('tree-container');
+  if (!container) return nodes;
+
+  const draggedEl = container.querySelector(`.node[data-id="${CSS.escape(draggedId)}"]`);
+  const allNodeEls = container.querySelectorAll('.node');
+  const scrollY = window.scrollY;
+
+  for (const el of allNodeEls) {
+    const htmlEl = el as HTMLElement;
+    const id = htmlEl.dataset.id;
+    if (!id) continue;
+
+    // Skip dragged node and its descendants
+    if (htmlEl === draggedEl || (draggedEl && draggedEl.contains(htmlEl))) continue;
+
+    const selfEl = htmlEl.querySelector(':scope > .node-self') as HTMLElement;
+    if (!selfEl) continue;
+
+    // Compute depth by counting .node-children ancestors up to container
+    let depth = 0;
+    let parent = htmlEl.parentElement;
+    while (parent && parent !== container) {
+      if (parent.classList.contains('node-children')) depth++;
+      parent = parent.parentElement;
+    }
+    depth += 1; // depth 1 = child of display root
+
+    const rect = selfEl.getBoundingClientRect();
+    nodes.push({
+      id,
+      depth,
+      top: rect.top + scrollY,       // document-relative
+      bottom: rect.bottom + scrollY,  // document-relative
+    });
+  }
+
+  return nodes;
+}
+
+function findGap(clientY: number, nodes: VisibleNode[], scrollDelta: number): { above: VisibleNode | null; below: VisibleNode | null } {
+  if (nodes.length === 0) return { above: null, below: null };
+
+  const docY = clientY + window.scrollY;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const midY = (nodes[i].top + nodes[i].bottom) / 2 + scrollDelta;
+    if (docY < midY) {
+      return { above: i > 0 ? nodes[i - 1] : null, below: nodes[i] };
+    }
+  }
+
+  return { above: nodes[nodes.length - 1], below: null };
+}
+
+function getDepthRange(above: VisibleNode | null, below: VisibleNode | null): { min: number; max: number } {
+  const maxDepth = above ? above.depth + 1 : 1;
+  const minDepth = below ? below.depth : 1;
+
+  return { min: Math.min(minDepth, maxDepth), max: maxDepth };
+}
+
+function computeDropTarget(
+  above: VisibleNode | null,
+  below: VisibleNode | null,
+  depth: number,
+  visibleNodes: VisibleNode[],
+): DropTarget | null {
+  const displayRootId = state.zoomedNodeId ?? state.root?.id ?? '';
+  if (!displayRootId) return null;
+
+  // Gap above first node
+  if (!above) {
+    return { parentId: displayRootId, beforeId: below?.id, depth };
+  }
+
+  // Becoming first child of nodeAbove
+  if (depth === above.depth + 1) {
+    // If below is a visible direct child of above, insert before it
+    if (below && below.depth === depth) {
+      return { parentId: above.id, beforeId: below.id, depth };
+    }
+    // Children not visible (collapsed) or no children — look up from tree data
+    if (state.root) {
+      const aboveNode = findNode(state.root, above.id);
+      if (aboveNode && aboveNode.children.length > 0) {
+        return { parentId: above.id, beforeId: aboveNode.children[0].id, depth };
+      }
+    }
+    // Leaf node — just set parentId (no siblings to position relative to)
+    return { parentId: above.id, depth };
+  }
+
+  // depth <= above.depth: find ancestor at target depth by scanning backward
+  const aboveIdx = visibleNodes.indexOf(above);
+
+  let ancestorAtDepth: VisibleNode = above;
+  for (let i = aboveIdx; i >= 0; i--) {
+    if (visibleNodes[i].depth === depth) {
+      ancestorAtDepth = visibleNodes[i];
+      break;
+    }
+    if (visibleNodes[i].depth < depth) break;
+  }
+
+  // parentId = ancestor's parent. For depth 1, that's displayRoot.
+  if (depth === 1) {
+    return { parentId: displayRootId, afterId: ancestorAtDepth.id, depth };
+  }
+
+  // Find parent: scan backward from ancestor for node at depth-1
+  const ancestorIdx = visibleNodes.indexOf(ancestorAtDepth);
+  for (let i = ancestorIdx - 1; i >= 0; i--) {
+    if (visibleNodes[i].depth === depth - 1) {
+      return { parentId: visibleNodes[i].id, afterId: ancestorAtDepth.id, depth };
+    }
+    if (visibleNodes[i].depth < depth - 1) break;
+  }
+
+  // Fallback
+  return { parentId: displayRootId, afterId: ancestorAtDepth.id, depth };
 }
 
 function onPointerMove(e: PointerEvent) {
@@ -102,32 +268,53 @@ function onPointerMove(e: PointerEvent) {
   dragState.ghost.style.left = `${e.clientX + 12}px`;
   dragState.ghost.style.top = `${e.clientY - 12}px`;
 
-  // Find drop target
-  dragState.ghost.style.pointerEvents = 'none';
-  dragState.indicator.style.pointerEvents = 'none';
-  const elementBelow = document.elementFromPoint(e.clientX, e.clientY);
-  dragState.ghost.style.pointerEvents = '';
+  // Scroll delta since drag started (rects are document-relative based on initial scroll)
+  const scrollDelta = 0; // rects stored as document-relative, so no delta needed
 
-  const targetNodeEl = elementBelow?.closest('.node') as HTMLElement | null;
-  if (!targetNodeEl || targetNodeEl === dragState.nodeEl || targetNodeEl.closest(`[data-id="${CSS.escape(dragState.nodeId)}"]`)) {
+  // Find the gap
+  const { above, below } = findGap(e.clientY, dragState.visibleNodes, scrollDelta);
+  if (!above && !below) {
     dragState.indicator.style.display = 'none';
     return;
   }
 
-  // Position the drop indicator
-  const selfEl = targetNodeEl.querySelector(':scope > .node-self') as HTMLElement;
-  if (!selfEl) return;
+  // Compute valid depth range
+  const { min, max } = getDepthRange(above, below);
 
-  const rect = selfEl.getBoundingClientRect();
-  const midY = rect.top + rect.height / 2;
-  const isBelow = e.clientY > midY;
+  // Map clientX to depth
+  const rawDepth = 1 + (e.clientX - dragState.baseLeft) / dragState.indent;
+  const chosenDepth = Math.max(min, Math.min(max, Math.round(rawDepth)));
+
+  // Compute drop target
+  const target = computeDropTarget(above, below, chosenDepth, dragState.visibleNodes);
+  if (!target) {
+    dragState.indicator.style.display = 'none';
+    return;
+  }
+
+  // Don't allow dropping into self
+  if (target.parentId === dragState.nodeId) {
+    dragState.indicator.style.display = 'none';
+    return;
+  }
+
+  // Position indicator
+  const gapY = above
+    ? (above.bottom - window.scrollY)   // viewport-relative bottom of node above
+    : (below!.top - window.scrollY);    // viewport-relative top of node below
+
+  const indicatorLeft = dragState.baseLeft + (chosenDepth - 1) * dragState.indent;
+  const indicatorWidth = dragState.containerRight - indicatorLeft;
 
   dragState.indicator.style.display = 'block';
-  dragState.indicator.style.top = `${isBelow ? rect.bottom : rect.top}px`;
-  dragState.indicator.style.left = `${rect.left}px`;
-  dragState.indicator.style.width = `${rect.width}px`;
-  dragState.indicator.dataset.targetId = targetNodeEl.dataset.id;
-  dragState.indicator.dataset.position = isBelow ? 'after' : 'before';
+  dragState.indicator.style.top = `${gapY}px`;
+  dragState.indicator.style.left = `${indicatorLeft}px`;
+  dragState.indicator.style.width = `${Math.max(indicatorWidth, 40)}px`;
+
+  // Store drop target on indicator
+  dragState.indicator.dataset.parentId = target.parentId;
+  dragState.indicator.dataset.afterId = target.afterId ?? '';
+  dragState.indicator.dataset.beforeId = target.beforeId ?? '';
 
   // Auto-scroll near edges
   const scrollZone = 60;
@@ -198,33 +385,22 @@ async function onPointerUp(_e: PointerEvent) {
   dragState.nodeEl.classList.remove('dragging');
   dragState.ghost.remove();
 
-  const targetId = dragState.indicator.dataset.targetId;
-  const position = dragState.indicator.dataset.position;
+  const parentId = dragState.indicator.dataset.parentId;
+  const afterId = dragState.indicator.dataset.afterId || undefined;
+  const beforeId = dragState.indicator.dataset.beforeId || undefined;
   dragState.indicator.remove();
 
   const nodeId = dragState.nodeId;
   dragState = null;
 
-  if (!targetId || !position || nodeId === targetId) return;
-
-  const targetEl = document.querySelector(`.node[data-id="${CSS.escape(targetId)}"]`) as HTMLElement;
-  if (!targetEl) return;
-
-  // Find the target's parent ID from the DOM, or fall back to the display root
-  const targetChildrenContainer = targetEl.parentElement; // .node-children
-  const targetParentNode = targetChildrenContainer?.closest('.node') as HTMLElement | null;
-  const displayRootId = state.zoomedNodeId ?? state.root?.id;
-  const parentId = targetParentNode?.dataset.id ?? displayRootId;
-
   if (!parentId) return;
 
   try {
     const update: Parameters<typeof updateNode>[1] = { parentId };
-
-    if (position === 'after') {
-      update.afterId = targetId;
-    } else {
-      update.beforeId = targetId;
+    if (afterId) {
+      update.afterId = afterId;
+    } else if (beforeId) {
+      update.beforeId = beforeId;
     }
 
     await updateNode(nodeId, update);
