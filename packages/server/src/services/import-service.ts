@@ -25,6 +25,16 @@ function ensureArray<T>(val: T | T[] | undefined): T[] {
 
 const MAX_IMPORT_DEPTH = 100;
 
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
 function insertOutlines(
   db: Database.Database,
   outlines: OpmlOutline[],
@@ -43,8 +53,8 @@ function insertOutlines(
   for (const outline of outlines) {
     const id = uuidv7();
     const pos = generateKeyBetween(prevPos, null);
-    const text = outline['@_text'] ?? '';
-    const description = outline['@__note'] ?? null;
+    const text = decodeXmlEntities(outline['@_text'] ?? '');
+    const description = outline['@__note'] != null ? decodeXmlEntities(outline['@__note']) : null;
     const status = outline['@__complete'] === 'true' ? 'completed' : 'active';
     const now = new Date().toISOString();
 

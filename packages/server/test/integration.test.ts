@@ -339,6 +339,38 @@ describe('GET /api/search', () => {
     expect(body.results).toHaveLength(1);
     expect(body.results[0].text).toBe('Meeting notes for Monday');
   });
+
+  it('excludes children of completed nodes when includeCompleted is false', async () => {
+    const tree = (await inject({ method: 'GET', url: '/api/tree' })).json();
+    const rootId = tree.root.id;
+
+    // Create a parent node, then complete it
+    const parent = (await inject({
+      method: 'POST',
+      url: '/api/nodes',
+      payload: { parentId: rootId, text: 'Done project' },
+    })).json();
+
+    await inject({
+      method: 'POST',
+      url: '/api/nodes',
+      payload: { parentId: parent.id, text: 'searchable child under completed' },
+    });
+
+    await inject({
+      method: 'PATCH',
+      url: `/api/nodes/${parent.id}`,
+      payload: { status: 'completed' },
+    });
+
+    // Without includeCompleted: child should not appear
+    const res1 = (await inject({ method: 'GET', url: '/api/search?q=searchable+child' })).json();
+    expect(res1.results).toHaveLength(0);
+
+    // With includeCompleted: child should appear
+    const res2 = (await inject({ method: 'GET', url: '/api/search?q=searchable+child&includeCompleted=true' })).json();
+    expect(res2.results).toHaveLength(1);
+  });
 });
 
 describe('OPML import/export', () => {
@@ -402,6 +434,26 @@ describe('OPML import/export', () => {
 
     const tree2 = (await inject({ method: 'GET', url: '/api/tree?includeCompleted=true' })).json();
     expect(tree2.root.children.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('decodes HTML entities in imported OPML', async () => {
+    const { importOpml } = await import('../src/services/import-service.js');
+    const me = (await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } })).json();
+    const userId = me.user.id;
+
+    const opmlWithEntities = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head><title>Test</title></head>
+  <body>
+    <outline text="a &lt;b&gt;bold&lt;/b&gt; link: &amp;test" _note="quote: &quot;hello&quot; &amp; &apos;world&apos;"/>
+  </body>
+</opml>`;
+
+    importOpml(app.db, userId, opmlWithEntities, 'replace');
+
+    const tree = (await inject({ method: 'GET', url: '/api/tree' })).json();
+    expect(tree.root.children[0].text).toBe('a <b>bold</b> link: &test');
+    expect(tree.root.children[0].description).toBe("quote: \"hello\" & 'world'");
   });
 });
 

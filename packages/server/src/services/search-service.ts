@@ -28,10 +28,23 @@ export function searchNodes(db: Database.Database, userId: string, query: string
   `).all(userId, pattern, pattern) as DbRow[];
 
   // Build ancestor lookup for breadcrumbs (only this user's nodes)
-  const allNodes = db.prepare('SELECT id, parent_id, text FROM nodes WHERE user_id = ?').all(userId) as DbRow[];
+  const allNodes = db.prepare('SELECT id, parent_id, text, status FROM nodes WHERE user_id = ?').all(userId) as DbRow[];
   const nodeMap = new Map(allNodes.map(n => [n.id, n]));
 
-  return rows.map(row => {
+  // Filter out nodes that have a completed ancestor
+  const hasCompletedAncestor = (nodeId: string): boolean => {
+    let current = nodeMap.get(nodeId);
+    while (current && current.parent_id !== null) {
+      const parent = nodeMap.get(current.parent_id!);
+      if (parent && parent.status === 'completed') return true;
+      current = parent;
+    }
+    return false;
+  };
+
+  const filtered = includeCompleted ? rows : rows.filter(row => !hasCompletedAncestor(row.id));
+
+  return filtered.map(row => {
     const breadcrumbs: { id: string; text: string }[] = [];
     let current = nodeMap.get(row.parent_id!);
     while (current && current.parent_id !== null) {
