@@ -14,11 +14,16 @@ interface DbRow {
 }
 
 export function getTree(db: Database.Database, userId: string, includeCompleted: boolean): TreeResponse {
-  const query = includeCompleted
-    ? 'SELECT * FROM nodes WHERE user_id = ? ORDER BY position'
-    : "SELECT * FROM nodes WHERE user_id = ? AND (status = 'active' OR parent_id IS NULL) ORDER BY position";
-
-  const rows = db.prepare(query).all(userId) as DbRow[];
+  const rows = includeCompleted
+    ? db.prepare('SELECT * FROM nodes WHERE user_id = ? ORDER BY position').all(userId) as DbRow[]
+    : db.prepare(`
+        WITH RECURSIVE tree AS (
+          SELECT * FROM nodes WHERE user_id = ? AND parent_id IS NULL
+          UNION ALL
+          SELECT n.* FROM nodes n INNER JOIN tree t ON n.parent_id = t.id
+            WHERE n.user_id = ? AND n.status = 'active'
+        ) SELECT * FROM tree ORDER BY position
+      `).all(userId, userId) as DbRow[];
 
   // Build lookup maps
   const nodeMap = new Map<string, TreeNode>();

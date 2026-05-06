@@ -12,7 +12,10 @@ interface DbRow {
 export function searchNodes(db: Database.Database, userId: string, query: string, includeCompleted = false): SearchResult[] {
   if (!query.trim()) return [];
 
-  const pattern = `%${query}%`;
+  // Escape LIKE wildcards (%, _) and the escape char (\) so a search for
+  // "_" or "%" matches literally instead of "any character" / "any string".
+  const escaped = query.replace(/[\\%_]/g, c => `\\${c}`);
+  const pattern = `%${escaped}%`;
 
   const statusClause = includeCompleted ? '' : "AND status != 'completed'";
 
@@ -20,7 +23,7 @@ export function searchNodes(db: Database.Database, userId: string, query: string
     SELECT id, parent_id, text, description, status
     FROM nodes
     WHERE user_id = ?
-      AND (text LIKE ? OR description LIKE ?)
+      AND (text LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')
       AND parent_id IS NOT NULL
       ${statusClause}
     ORDER BY updated_at DESC

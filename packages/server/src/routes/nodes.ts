@@ -62,6 +62,10 @@ export async function nodeRoutes(app: FastifyInstance) {
         reply.code(404);
         return { error: err.message };
       }
+      if (err instanceof Error && err.message.startsWith('Cannot')) {
+        reply.code(400);
+        return { error: err.message };
+      }
       throw err;
     }
   });

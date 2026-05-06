@@ -35,12 +35,10 @@ export async function createUser(
     'INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)'
   ).run(id, username, passwordHash);
 
-  // Adopt orphaned nodes (from pre-auth era) for the first user
+  // Adopt orphaned nodes (from pre-auth era) for the first user.
+  // UPDATE is a no-op when no rows match, so no pre-check is needed.
   if (isFirstUser) {
-    const orphaned = db.prepare('SELECT id FROM nodes WHERE user_id IS NULL').all() as { id: string }[];
-    if (orphaned.length > 0) {
-      db.prepare('UPDATE nodes SET user_id = ? WHERE user_id IS NULL').run(id);
-    }
+    db.prepare('UPDATE nodes SET user_id = ? WHERE user_id IS NULL').run(id);
   }
 
   // Ensure user has a root node
@@ -56,13 +54,27 @@ export async function createUser(
   return toUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow);
 }
 
+// Fixed dummy hash used to equalize timing when the username doesn't exist
+// or has no password on file — prevents a side-channel that reveals account
+// existence via response time.
+let dummyHashPromise: Promise<string> | null = null;
+function getDummyHash(): Promise<string> {
+  if (!dummyHashPromise) {
+    dummyHashPromise = hash('dummy-password-for-timing-equalization');
+  }
+  return dummyHashPromise;
+}
+
 export async function verifyPassword(
   db: Database.Database,
   username: string,
   password: string
 ): Promise<User | null> {
   const row = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as UserRow | undefined;
-  if (!row || !row.password_hash) return null;
+  if (!row || !row.password_hash) {
+    await verify(await getDummyHash(), password);
+    return null;
+  }
 
   const valid = await verify(row.password_hash, password);
   if (!valid) return null;

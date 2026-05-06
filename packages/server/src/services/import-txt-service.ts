@@ -58,21 +58,30 @@ export function importTxt(
         const noteLines: string[] = [];
         const noteIndent = noteMatch[1];
 
-        // Check if single-line note: "content"
-        const singleLine = line.match(/^(\s*)"(.*)"$/);
-        if (singleLine) {
-          noteLines.push(singleLine[2]);
+        // A `"` inside note content is written as `\"` by the exporter, so
+        // only unescaped quotes close a note. Detect by counting trailing
+        // backslashes before the final `"`.
+        const endsWithUnescapedQuote = (s: string): boolean => {
+          if (!s.endsWith('"')) return false;
+          let backslashes = 0;
+          for (let k = s.length - 2; k >= 0 && s[k] === '\\'; k--) backslashes++;
+          return backslashes % 2 === 0;
+        };
+
+        // Check if single-line note: "content" with the closing quote unescaped
+        const singleBody = line.slice(noteIndent.length + 1); // after opening "
+        if (singleBody.length >= 1 && endsWithUnescapedQuote(singleBody)) {
+          noteLines.push(singleBody.slice(0, -1));
           i++;
         } else {
           // Multi-line note: first line starts with ", last line is just "
-          const firstContent = line.match(/^(\s*)"(.*)$/);
-          if (firstContent) noteLines.push(firstContent[2]);
+          noteLines.push(singleBody);
           i++;
 
           while (i < lines.length) {
             const noteLine = lines[i];
-            // Check for closing quote (just whitespace + ")
-            if (noteLine.match(/^\s*"$/)) {
+            // Close marker: exactly the note indent followed by a single unescaped quote
+            if (noteLine === noteIndent + '"') {
               i++;
               break;
             }
@@ -83,7 +92,9 @@ export function importTxt(
           }
         }
 
-        const description = noteLines.join('\n');
+        const description = noteLines
+          .map(l => l.replace(/\\([\\"])/g, '$1'))
+          .join('\n');
         if (description) {
           updateDescStmt.run(description, lastInsertedId);
         }

@@ -106,6 +106,20 @@ export function updateNode(db: Database.Database, userId: string, id: string, bo
   if (body.parentId !== undefined) {
     // Verify new parent exists and belongs to user
     getNode(db, userId, body.parentId);
+    // Prevent cycles: new parent cannot be the node itself nor any of its descendants
+    if (body.parentId === id) {
+      throw new Error('Cannot move a node under itself');
+    }
+    const cycle = db.prepare(`
+      WITH RECURSIVE ancestors(id, parent_id) AS (
+        SELECT id, parent_id FROM nodes WHERE id = ? AND user_id = ?
+        UNION ALL
+        SELECT n.id, n.parent_id FROM nodes n INNER JOIN ancestors a ON n.id = a.parent_id WHERE n.user_id = ?
+      ) SELECT 1 FROM ancestors WHERE id = ? LIMIT 1
+    `).get(body.parentId, userId, userId, id);
+    if (cycle) {
+      throw new Error('Cannot move a node under its own descendant');
+    }
     sets.push('parent_id = ?');
     values.push(body.parentId);
   }
@@ -215,7 +229,11 @@ export function moveNode(
       }
       const parentSiblings = getSiblings(db, userId, parent.parent_id);
       const parentIdx = parentSiblings.findIndex(s => s.id === parent.id);
-      const after = parentSiblings[parentIdx]?.position ?? null;
+      if (parentIdx === -1) {
+        // Invariant violated: parent should always appear among its own parent's children.
+        throw new Error(`Outdent failed: parent ${parent.id} not found among its siblings`);
+      }
+      const after = parentSiblings[parentIdx].position;
       const before = parentIdx < parentSiblings.length - 1 ? parentSiblings[parentIdx + 1].position : null;
       const newPos = generateKeyBetween(after, before);
       db.prepare(
@@ -263,8 +281,8 @@ export function splitNode(
 
     // Move all children of original to the new node
     db.prepare(
-      "UPDATE nodes SET parent_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE parent_id = ? AND id != ?"
-    ).run(newId, id, newId);
+      "UPDATE nodes SET parent_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE parent_id = ?"
+    ).run(newId, id);
   });
 
   doSplit();

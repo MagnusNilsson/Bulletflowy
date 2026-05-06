@@ -1,6 +1,7 @@
 import { updateNode } from './api.js';
 import { showSaved, showSaveError } from './save-indicator.js';
-import { state, findNode } from './state.js';
+import { state, findNode, findParentOf } from './state.js';
+import { renderTree } from './tree-renderer.js';
 
 interface VisibleNode {
   id: string;
@@ -393,7 +394,32 @@ async function onPointerUp(_e: PointerEvent) {
   const nodeId = dragState.nodeId;
   dragState = null;
 
-  if (!parentId) return;
+  if (!parentId || !state.root) return;
+
+  const node = findNode(state.root, nodeId);
+  const oldParent = findParentOf(state.root, nodeId);
+  const newParent = findNode(state.root, parentId);
+  if (!node || !oldParent || !newParent) return;
+
+  const oldIndex = oldParent.children.findIndex(c => c.id === nodeId);
+  if (oldIndex === -1) return;
+
+  oldParent.children.splice(oldIndex, 1);
+
+  let newIndex: number;
+  if (afterId) {
+    const idx = newParent.children.findIndex(c => c.id === afterId);
+    newIndex = idx === -1 ? newParent.children.length : idx + 1;
+  } else if (beforeId) {
+    const idx = newParent.children.findIndex(c => c.id === beforeId);
+    newIndex = idx === -1 ? newParent.children.length : idx;
+  } else {
+    newIndex = newParent.children.length;
+  }
+
+  newParent.children.splice(newIndex, 0, node);
+
+  renderTree();
 
   try {
     const update: Parameters<typeof updateNode>[1] = { parentId };
@@ -405,8 +431,12 @@ async function onPointerUp(_e: PointerEvent) {
 
     await updateNode(nodeId, update);
     showSaved();
-    treeChangedCallback?.();
   } catch (err: any) {
+    const failedIdx = newParent.children.findIndex(c => c.id === nodeId);
+    if (failedIdx !== -1) newParent.children.splice(failedIdx, 1);
+    oldParent.children.splice(oldIndex, 0, node);
+    renderTree();
     showSaveError('Move failed: ' + err.message);
+    treeChangedCallback?.();
   }
 }

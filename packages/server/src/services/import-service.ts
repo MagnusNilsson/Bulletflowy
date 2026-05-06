@@ -26,11 +26,14 @@ function ensureArray<T>(val: T | T[] | undefined): T[] {
 const MAX_IMPORT_DEPTH = 100;
 
 function decodeXmlEntities(text: string): string {
+  // Decode numeric entities (&#NN; and &#xNN;) first, then named entities.
+  // &amp; is applied last so that literals like "&amp;lt;" survive as "&lt;".
   return text
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
     .replace(/&apos;/g, "'")
     .replace(/&amp;/g, '&');
 }
@@ -41,14 +44,15 @@ function insertOutlines(
   parentId: string,
   userId: string,
   insertStmt: Database.Statement,
-  depth: number = 0
+  depth: number = 0,
+  startAfterPos: string | null = null
 ): number {
   if (depth > MAX_IMPORT_DEPTH) {
     throw new Error(`Import exceeds maximum nesting depth of ${MAX_IMPORT_DEPTH}`);
   }
 
   let count = 0;
-  let prevPos: string | null = null;
+  let prevPos: string | null = startAfterPos;
 
   for (const outline of outlines) {
     const id = uuidv7();
@@ -104,7 +108,15 @@ export function importOpml(
       db.prepare('DELETE FROM nodes WHERE parent_id IS NOT NULL AND user_id = ?').run(userId);
     }
 
-    return insertOutlines(db, outlines, rootId, userId, insertStmt);
+    let startAfterPos: string | null = null;
+    if (mode === 'merge') {
+      const lastChild = db.prepare(
+        'SELECT position FROM nodes WHERE parent_id = ? AND user_id = ? ORDER BY position DESC LIMIT 1'
+      ).get(rootId, userId) as { position: string } | undefined;
+      startAfterPos = lastChild?.position ?? null;
+    }
+
+    return insertOutlines(db, outlines, rootId, userId, insertStmt, 0, startAfterPos);
   });
 
   const importedCount = importInTransaction();

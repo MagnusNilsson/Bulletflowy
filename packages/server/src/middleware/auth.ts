@@ -29,9 +29,15 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
         return;
       }
     }
-    // Invalid session — clear cookie
+    // Invalid session — always clear cookie so a stale cookie doesn't
+    // linger on public routes and cause 401 loops on subsequent calls.
+    reply.clearCookie(COOKIE_NAME, {
+      path: '/',
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+    });
     if (!isPublic) {
-      reply.clearCookie(COOKIE_NAME, { path: '/', httpOnly: true, sameSite: 'lax' as const });
       reply.code(401).send({ error: 'Session expired' });
       return;
     }

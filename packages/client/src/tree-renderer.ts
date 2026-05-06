@@ -66,12 +66,15 @@ export function renderTree() {
       const sel = window.getSelection();
       if (sel && textEl.childNodes.length > 0) {
         range.selectNodeContents(textEl);
-        range.collapse(false);
+        // Consume the one-shot cursor hint; default to end for back-compat.
+        const toStart = state.pendingCursorAt === 'start';
+        range.collapse(toStart);
         sel.removeAllRanges();
         sel.addRange(range);
       }
     }
   }
+  state.pendingCursorAt = null;
 }
 
 function renderNode(node: TreeNode): HTMLElement {
@@ -387,6 +390,7 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
     const idx = parent.children.findIndex(c => c.id === node.id);
     parent.children.splice(idx + 1, 0, newNode);
     state.focusedNodeId = newNode.id;
+    state.pendingCursorAt = 'start';
     renderTree();
 
     try {

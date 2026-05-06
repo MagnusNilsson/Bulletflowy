@@ -16,6 +16,10 @@ interface TreeNode {
   children: TreeNode[];
 }
 
+function escapeNoteLine(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 function nodeToTxt(node: TreeNode, depth: number): string {
   const indent = '  '.repeat(depth);
   const prefix = node.status === 'completed' ? '[COMPLETE] ' : '';
@@ -23,7 +27,7 @@ function nodeToTxt(node: TreeNode, depth: number): string {
 
   if (node.description) {
     const noteIndent = '  '.repeat(depth) + '  ';
-    const lines = node.description.split('\n');
+    const lines = node.description.split('\n').map(escapeNoteLine);
     if (lines.length === 1) {
       txt += `${noteIndent}"${lines[0]}"\n`;
     } else {

@@ -114,13 +114,18 @@ export async function authRoutes(app: FastifyInstance) {
     const sessionId = request.cookies[COOKIE_NAME];
     if (sessionId) {
       deleteSession(app.db, sessionId);
-      reply.clearCookie(COOKIE_NAME, { path: '/', httpOnly: true, sameSite: 'lax' as const });
+      reply.clearCookie(COOKIE_NAME, {
+        path: '/',
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax' as const,
+      });
     }
     return { ok: true };
   });
 
   // Passkey registration (requires auth)
-  app.post('/api/auth/passkey/register-options', async (request, reply) => {
+  app.post('/api/auth/passkey/register-options', authRateLimit, async (request, reply) => {
     if (!request.user) {
       reply.code(401).send({ error: 'Not authenticated' });
       return;
@@ -128,7 +133,7 @@ export async function authRoutes(app: FastifyInstance) {
     return getRegistrationOptions(app.db, request.user.id, request.user.username);
   });
 
-  app.post('/api/auth/passkey/register-verify', async (request, reply) => {
+  app.post('/api/auth/passkey/register-verify', authRateLimit, async (request, reply) => {
     if (!request.user) {
       reply.code(401).send({ error: 'Not authenticated' });
       return;

@@ -4,6 +4,8 @@ export interface AppState {
   root: TreeNode | null;
   zoomedNodeId: string | null;
   focusedNodeId: string | null;
+  /** Cursor placement hint consumed by the next renderTree focus restore */
+  pendingCursorAt: 'start' | 'end' | null;
   showCompleted: boolean;
   collapsedIds: Set<string>;
 }
@@ -26,6 +28,7 @@ export const state: AppState = {
   root: null,
   zoomedNodeId: null,
   focusedNodeId: null,
+  pendingCursorAt: null,
   showCompleted: false,
   collapsedIds: loadCollapsedIds(),
 };
