@@ -228,19 +228,27 @@ function renderEmptyPlaceholder(parentId: string): HTMLElement {
     el.classList.remove('focused');
   });
 
-  textEl.addEventListener('keydown', async (e) => {
+  textEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       const text = textEl.textContent?.trim() ?? '';
       if (!text) return;
-      try {
-        const created = await createNode({ parentId, text });
-        showSaved();
-        state.focusedNodeId = created.id;
-        onTreeChanged?.();
-      } catch (err: any) {
-        showSaveError('Create failed: ' + err.message);
-      }
+      if (!state.root) return;
+      const parent = findNode(state.root, parentId);
+      if (!parent) return;
+
+      const newNode = makeNode(text);
+      parent.children.push(newNode);
+      state.focusedNodeId = newNode.id;
+      renderTree();
+
+      createNode({ id: newNode.id, parentId, text })
+        .then(() => showSaved())
+        .catch((err) => {
+          removeNode(newNode.id);
+          onTreeChanged?.();
+          showSaveError('Create failed: ' + err.message);
+        });
     }
   });
 
@@ -409,96 +417,142 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
 }
 
 
-export async function createSiblingAfter(nodeId: string) {
+export function createSiblingAfter(nodeId: string) {
   if (!state.root) return;
 
   const parent = findParentOf(state.root, nodeId);
   if (!parent) return;
 
-  try {
-    const created = await createNode({ parentId: parent.id, text: '' });
-    showSaved();
-    state.focusedNodeId = created.id;
-    onTreeChanged?.();
-  } catch (err: any) {
-    showSaveError('Create failed: ' + err.message);
-  }
+  const newNode = makeNode('');
+  const idx = parent.children.findIndex(c => c.id === nodeId);
+  parent.children.splice(idx === -1 ? parent.children.length : idx + 1, 0, newNode);
+  state.focusedNodeId = newNode.id;
+  renderTree();
+
+  createNode({ id: newNode.id, parentId: parent.id, text: '', afterId: nodeId })
+    .then(() => showSaved())
+    .catch((err) => {
+      removeNode(newNode.id);
+      onTreeChanged?.();
+      showSaveError('Create failed: ' + err.message);
+    });
 }
 
-export async function deleteEmpty(nodeId: string) {
+export function deleteEmpty(nodeId: string) {
   if (!state.root) return;
 
   const all = flattenVisible(getDisplayRoot());
   const idx = all.findIndex(n => n.id === nodeId);
   const prevNode = idx > 0 ? all[idx - 1] : null;
 
-  try {
-    await deleteNode(nodeId);
-    showSaved();
-    state.focusedNodeId = prevNode?.id ?? null;
-    onTreeChanged?.();
-  } catch (err: any) {
-    showSaveError('Delete failed: ' + err.message);
-  }
+  removeNode(nodeId);
+  state.focusedNodeId = prevNode?.id ?? null;
+  renderTree();
+
+  deleteNode(nodeId)
+    .then(() => showSaved())
+    .catch((err) => {
+      showSaveError('Delete failed: ' + err.message);
+      onTreeChanged?.();
+    });
 }
 
-export async function toggleComplete(nodeId: string) {
+export function toggleComplete(nodeId: string) {
   if (!state.root) return;
   const node = findNode(state.root, nodeId);
   if (!node) return;
 
   const newStatus = node.status === 'active' ? 'completed' : 'active';
-  try {
-    await updateNode(nodeId, { status: newStatus });
-    showSaved();
-    onTreeChanged?.();
-  } catch (err: any) {
-    showSaveError('Update failed: ' + err.message);
-  }
+  node.status = newStatus;
+  renderTree();
+
+  updateNode(nodeId, { status: newStatus })
+    .then(() => showSaved())
+    .catch((err) => {
+      showSaveError('Update failed: ' + err.message);
+      onTreeChanged?.();
+    });
 }
 
-export async function indentNode(nodeId: string) {
-  try {
-    await moveNode(nodeId, { direction: 'indent' });
-    showSaved();
-    state.focusedNodeId = nodeId;
-    onTreeChanged?.();
-  } catch (err: any) {
-    showSaveError(err.message);
+export function indentNode(nodeId: string) {
+  if (!state.root) return;
+  const parent = findParentOf(state.root, nodeId);
+  if (!parent) return;
+  const idx = parent.children.findIndex(c => c.id === nodeId);
+  if (idx <= 0) return; // no previous sibling — server would reject
+  const node = parent.children[idx];
+  const newParent = parent.children[idx - 1];
+
+  parent.children.splice(idx, 1);
+  newParent.children.push(node);
+  // Auto-expand the new parent so the indented node remains visible.
+  if (state.collapsedIds.has(newParent.id)) {
+    state.collapsedIds.delete(newParent.id);
+    persistCollapsedIds();
   }
+  state.focusedNodeId = nodeId;
+  renderTree();
+
+  moveNode(nodeId, { direction: 'indent' })
+    .then(() => showSaved())
+    .catch((err) => {
+      showSaveError(err.message);
+      onTreeChanged?.();
+    });
 }
 
-export async function outdentNode(nodeId: string) {
-  try {
-    await moveNode(nodeId, { direction: 'outdent' });
-    showSaved();
-    state.focusedNodeId = nodeId;
-    onTreeChanged?.();
-  } catch (err: any) {
-    showSaveError(err.message);
-  }
+export function outdentNode(nodeId: string) {
+  if (!state.root) return;
+  const parent = findParentOf(state.root, nodeId);
+  if (!parent) return;
+  const grandparent = findParentOf(state.root, parent.id);
+  if (!grandparent) return; // parent is root — server would reject
+  const idx = parent.children.findIndex(c => c.id === nodeId);
+  const parentIdx = grandparent.children.findIndex(c => c.id === parent.id);
+  if (idx === -1 || parentIdx === -1) return;
+  const node = parent.children[idx];
+
+  parent.children.splice(idx, 1);
+  grandparent.children.splice(parentIdx + 1, 0, node);
+  state.focusedNodeId = nodeId;
+  renderTree();
+
+  moveNode(nodeId, { direction: 'outdent' })
+    .then(() => showSaved())
+    .catch((err) => {
+      showSaveError(err.message);
+      onTreeChanged?.();
+    });
 }
 
-export async function moveNodeUp(nodeId: string) {
-  try {
-    await moveNode(nodeId, { direction: 'up' });
-    showSaved();
-    state.focusedNodeId = nodeId;
-    onTreeChanged?.();
-  } catch {
-    // silently ignore if already at top
-  }
+export function moveNodeUp(nodeId: string) {
+  if (!state.root) return;
+  const parent = findParentOf(state.root, nodeId);
+  if (!parent) return;
+  const idx = parent.children.findIndex(c => c.id === nodeId);
+  if (idx <= 0) return; // already at top
+  [parent.children[idx - 1], parent.children[idx]] = [parent.children[idx], parent.children[idx - 1]];
+  state.focusedNodeId = nodeId;
+  renderTree();
+
+  moveNode(nodeId, { direction: 'up' })
+    .then(() => showSaved())
+    .catch(() => onTreeChanged?.());
 }
 
-export async function moveNodeDown(nodeId: string) {
-  try {
-    await moveNode(nodeId, { direction: 'down' });
-    showSaved();
-    state.focusedNodeId = nodeId;
-    onTreeChanged?.();
-  } catch {
-    // silently ignore if already at bottom
-  }
+export function moveNodeDown(nodeId: string) {
+  if (!state.root) return;
+  const parent = findParentOf(state.root, nodeId);
+  if (!parent) return;
+  const idx = parent.children.findIndex(c => c.id === nodeId);
+  if (idx === -1 || idx >= parent.children.length - 1) return; // already at bottom
+  [parent.children[idx], parent.children[idx + 1]] = [parent.children[idx + 1], parent.children[idx]];
+  state.focusedNodeId = nodeId;
+  renderTree();
+
+  moveNode(nodeId, { direction: 'down' })
+    .then(() => showSaved())
+    .catch(() => onTreeChanged?.());
 }
 
 // ── Collapse/expand ──
@@ -654,15 +708,24 @@ function showContextMenu(node: TreeNode, x: number, y: number) {
     },
     {
       label: 'Delete',
-      action: async () => {
-        try {
-          await deleteNode(node.id);
-          showSaved();
-          if (state.focusedNodeId === node.id) state.focusedNodeId = null;
-          onTreeChanged?.();
-        } catch (err: any) {
-          showSaveError('Delete failed: ' + err.message);
+      action: () => {
+        if (!state.root) return;
+        const all = flattenVisible(getDisplayRoot());
+        const idx = all.findIndex(n => n.id === node.id);
+        const prevNode = idx > 0 ? all[idx - 1] : null;
+
+        removeNode(node.id);
+        if (state.focusedNodeId === node.id) {
+          state.focusedNodeId = prevNode?.id ?? null;
         }
+        renderTree();
+
+        deleteNode(node.id)
+          .then(() => showSaved())
+          .catch((err) => {
+            showSaveError('Delete failed: ' + err.message);
+            onTreeChanged?.();
+          });
       },
     },
   ];
