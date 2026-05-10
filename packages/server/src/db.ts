@@ -61,7 +61,10 @@ export function createDatabase(dbPath: string = DB_PATH): Database.Database {
   if (!columns.some(c => c.name === 'user_id')) {
     db.exec('ALTER TABLE nodes ADD COLUMN user_id TEXT REFERENCES users(id)');
   }
-  db.exec('CREATE INDEX IF NOT EXISTS idx_nodes_user ON nodes(user_id)');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_nodes_user ON nodes(user_id);
+    CREATE INDEX IF NOT EXISTS idx_nodes_user_parent_position ON nodes(user_id, parent_id, position);
+  `);
 
   return db;
 }

@@ -13,8 +13,144 @@ export function setOnTreeChanged(cb: () => void) {
   onTreeChanged = cb;
 }
 
+/**
+ * If a debounced text save is pending for this node, fire it now.
+ * Call before any structural action so the server doesn't lag behind local state.
+ */
+function flushPendingSave(id: string) {
+  const timer = debounceTimers.get(id);
+  if (!timer) return;
+  clearTimeout(timer);
+  debounceTimers.delete(id);
+  if (!state.root) return;
+  const node = findNode(state.root, id);
+  if (!node) return;
+  updateNode(id, { text: node.text })
+    .then(() => showSaved())
+    .catch((err) => showSaveError('Save failed: ' + err.message));
+}
+
 function getContainer(): HTMLElement {
   return document.getElementById('tree-container')!;
+}
+
+// ── Incremental DOM helpers ──
+// These let structural ops patch the DOM in place instead of calling renderTree(),
+// which rebuilds the entire visible subtree.
+
+function findNodeEl(id: string): HTMLElement | null {
+  return getContainer().querySelector(`.node[data-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+}
+
+function displayRootId(): string | null {
+  return state.zoomedNodeId ?? state.root?.id ?? null;
+}
+
+/** Container element holding `parentId`'s children: either a `.node-children` div or `#tree-container`. */
+function getParentContainerEl(parentId: string): HTMLElement | null {
+  if (parentId === displayRootId()) return getContainer();
+  const parentNodeEl = findNodeEl(parentId);
+  if (!parentNodeEl) return null;
+  return parentNodeEl.querySelector(':scope > .node-children') as HTMLElement | null;
+}
+
+function getOrCreateChildrenContainer(nodeEl: HTMLElement): HTMLElement {
+  let children = nodeEl.querySelector(':scope > .node-children') as HTMLElement | null;
+  if (!children) {
+    children = document.createElement('div');
+    children.className = 'node-children';
+    nodeEl.appendChild(children);
+  }
+  return children;
+}
+
+function setHasChildren(nodeEl: HTMLElement, hasChildren: boolean) {
+  nodeEl.classList.toggle('has-children', hasChildren);
+  if (!hasChildren) nodeEl.classList.remove('collapsed');
+  const collapseBtn = nodeEl.querySelector(':scope > .node-self > .node-collapse') as HTMLElement | null;
+  if (collapseBtn) {
+    collapseBtn.classList.toggle('visible', hasChildren);
+    if (!hasChildren) collapseBtn.classList.remove('is-collapsed');
+  }
+}
+
+/** Reorder `.node` elements under `containerEl` to match the visible order in `parentNode.children`. */
+function syncChildrenDOM(parentNode: TreeNode, containerEl: HTMLElement) {
+  const visible = parentNode.children.filter(c => state.showCompleted || c.status !== 'completed');
+  let cursor: Element | null = containerEl.firstElementChild;
+  // Skip non-.node siblings (like a leftover empty-placeholder) at the start.
+  while (cursor && !cursor.classList.contains('node')) cursor = cursor.nextElementSibling;
+  for (const child of visible) {
+    const childEl = containerEl.querySelector(`:scope > .node[data-id="${CSS.escape(child.id)}"]`);
+    if (!childEl) continue;
+    if (childEl !== cursor) {
+      containerEl.insertBefore(childEl, cursor);
+    } else {
+      cursor = childEl.nextElementSibling;
+      while (cursor && !cursor.classList.contains('node')) cursor = cursor.nextElementSibling;
+    }
+  }
+}
+
+/** Remove a node's DOM element and clean up parent's has-children / empty-placeholder. */
+function removeNodeFromDOM(nodeId: string): boolean {
+  const nodeEl = findNodeEl(nodeId);
+  if (!nodeEl) return false;
+  const containerEl = nodeEl.parentElement as HTMLElement | null;
+  nodeEl.remove();
+  if (!containerEl) return true;
+  if (containerEl.classList.contains('node-children') && containerEl.children.length === 0) {
+    const parentNodeEl = containerEl.parentElement as HTMLElement;
+    containerEl.remove();
+    setHasChildren(parentNodeEl, false);
+  } else if (containerEl === getContainer() && containerEl.children.length === 0) {
+    const root = getDisplayRoot();
+    containerEl.appendChild(renderEmptyPlaceholder(root.id));
+  }
+  return true;
+}
+
+/** Insert a freshly-rendered node element under its parent at the correct visible position. */
+function insertNodeIntoDOM(parentNode: TreeNode, newNode: TreeNode): boolean {
+  let containerEl = getParentContainerEl(parentNode.id);
+  if (!containerEl) {
+    // Parent has no children container yet — create one (only for non-root parents).
+    if (parentNode.id === displayRootId()) return false;
+    const parentNodeEl = findNodeEl(parentNode.id);
+    if (!parentNodeEl) return false;
+    containerEl = getOrCreateChildrenContainer(parentNodeEl);
+    setHasChildren(parentNodeEl, true);
+  }
+
+  // If display root was empty, drop the placeholder before inserting.
+  const placeholder = containerEl.querySelector(':scope > .empty-placeholder');
+  placeholder?.remove();
+
+  const visible = parentNode.children.filter(c => state.showCompleted || c.status !== 'completed');
+  const idx = visible.findIndex(c => c.id === newNode.id);
+  const nextId = idx === -1 ? null : visible[idx + 1]?.id;
+  const nextEl = nextId
+    ? containerEl.querySelector(`:scope > .node[data-id="${CSS.escape(nextId)}"]`)
+    : null;
+
+  containerEl.insertBefore(renderNode(newNode), nextEl);
+
+  // Non-root parent now has at least one child — make sure has-children reflects that.
+  if (parentNode.id !== displayRootId()) {
+    const parentNodeEl = findNodeEl(parentNode.id);
+    if (parentNodeEl) setHasChildren(parentNodeEl, true);
+  }
+  return true;
+}
+
+function focusNodeText(nodeId: string) {
+  const textEl = getContainer().querySelector(
+    `.node[data-id="${CSS.escape(nodeId)}"] > .node-self .node-text`
+  ) as HTMLElement | null;
+  if (!textEl) return;
+  document.querySelectorAll('.node-self.focused').forEach(el => el.classList.remove('focused'));
+  textEl.closest('.node-self')?.classList.add('focused');
+  textEl.focus();
 }
 
 export function renderTree() {
@@ -157,25 +293,19 @@ function renderNode(node: TreeNode): HTMLElement {
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       e.stopPropagation();
-      const id = node.id;
-      // Flush any pending save
-      if (debounceTimers.has(id)) {
-        clearTimeout(debounceTimers.get(id)!);
-        debounceTimers.delete(id);
-      }
+      flushPendingSave(node.id);
       handleEnter(node, textEl);
     }
   });
 
-  // Debounced save on input
+  // Sync text immediately so structural ops see the latest value; debounce only the network save.
   textEl.addEventListener('input', () => {
     const id = node.id;
+    node.text = textEl.textContent ?? '';
     if (debounceTimers.has(id)) clearTimeout(debounceTimers.get(id)!);
     debounceTimers.set(id, setTimeout(() => {
       debounceTimers.delete(id);
-      const newText = textEl.textContent ?? '';
-      node.text = newText;
-      updateNode(id, { text: newText })
+      updateNode(id, { text: node.text })
         .then(() => showSaved())
         .catch((err) => showSaveError('Save failed: ' + err.message));
     }, 300));
@@ -240,7 +370,12 @@ function renderEmptyPlaceholder(parentId: string): HTMLElement {
       const newNode = makeNode(text);
       parent.children.push(newNode);
       state.focusedNodeId = newNode.id;
-      renderTree();
+
+      if (insertNodeIntoDOM(parent, newNode)) {
+        focusNodeText(newNode.id);
+      } else {
+        renderTree();
+      }
 
       createNode({ id: newNode.id, parentId, text })
         .then(() => showSaved())
@@ -342,49 +477,60 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
     const idx = parent.children.findIndex(c => c.id === node.id);
     parent.children.splice(idx, 0, newNode);
     state.focusedNodeId = node.id;
-    renderTree();
 
-    try {
-      await createNode({ id: newNode.id, parentId: parent.id, text: '', beforeId: node.id });
-      showSaved();
-    } catch (err: any) {
-      removeNode(newNode.id);
-      onTreeChanged?.();
-      showSaveError('Failed: ' + err.message);
+    if (insertNodeIntoDOM(parent, newNode)) {
+      focusNodeText(node.id);
+    } else {
+      renderTree();
     }
+
+    createNode({ id: newNode.id, parentId: parent.id, text: '', beforeId: node.id })
+      .then(() => showSaved())
+      .catch((err) => {
+        removeNode(newNode.id);
+        onTreeChanged?.();
+        showSaveError('Failed: ' + err.message);
+      });
   } else if (atEnd && hasChildren && !state.collapsedIds.has(node.id)) {
     // Cursor at end, node has visible children: create empty first child
     const newNode = makeNode('');
     node.children.unshift(newNode);
     state.focusedNodeId = newNode.id;
-    renderTree();
 
-    try {
-      await updateNode(node.id, { text: fullText });
-      await createNode({ id: newNode.id, parentId: node.id, text: '', position: 'first' });
-      showSaved();
-    } catch (err: any) {
-      removeNode(newNode.id);
-      onTreeChanged?.();
-      showSaveError('Failed: ' + err.message);
+    if (insertNodeIntoDOM(node, newNode)) {
+      focusNodeText(newNode.id);
+    } else {
+      renderTree();
     }
+
+    // Text was synced on input + flushed before handleEnter, so updateNode is redundant.
+    createNode({ id: newNode.id, parentId: node.id, text: '', position: 'first' })
+      .then(() => showSaved())
+      .catch((err) => {
+        removeNode(newNode.id);
+        onTreeChanged?.();
+        showSaveError('Failed: ' + err.message);
+      });
   } else if (atEnd) {
     // Cursor at end, no children (or collapsed): create sibling immediately below
     const newNode = makeNode('');
     const idx = parent.children.findIndex(c => c.id === node.id);
     parent.children.splice(idx + 1, 0, newNode);
     state.focusedNodeId = newNode.id;
-    renderTree();
 
-    try {
-      await updateNode(node.id, { text: fullText });
-      await createNode({ id: newNode.id, parentId: parent.id, text: '', afterId: node.id });
-      showSaved();
-    } catch (err: any) {
-      removeNode(newNode.id);
-      onTreeChanged?.();
-      showSaveError('Failed: ' + err.message);
+    if (insertNodeIntoDOM(parent, newNode)) {
+      focusNodeText(newNode.id);
+    } else {
+      renderTree();
     }
+
+    createNode({ id: newNode.id, parentId: parent.id, text: '', afterId: node.id })
+      .then(() => showSaved())
+      .catch((err) => {
+        removeNode(newNode.id);
+        onTreeChanged?.();
+        showSaveError('Failed: ' + err.message);
+      });
   } else {
     // Cursor in middle: split node
     const textBefore = fullText.slice(0, cursorOffset);
@@ -427,7 +573,12 @@ export function createSiblingAfter(nodeId: string) {
   const idx = parent.children.findIndex(c => c.id === nodeId);
   parent.children.splice(idx === -1 ? parent.children.length : idx + 1, 0, newNode);
   state.focusedNodeId = newNode.id;
-  renderTree();
+
+  if (insertNodeIntoDOM(parent, newNode)) {
+    focusNodeText(newNode.id);
+  } else {
+    renderTree();
+  }
 
   createNode({ id: newNode.id, parentId: parent.id, text: '', afterId: nodeId })
     .then(() => showSaved())
@@ -440,6 +591,7 @@ export function createSiblingAfter(nodeId: string) {
 
 export function deleteEmpty(nodeId: string) {
   if (!state.root) return;
+  flushPendingSave(nodeId);
 
   const all = flattenVisible(getDisplayRoot());
   const idx = all.findIndex(n => n.id === nodeId);
@@ -447,7 +599,12 @@ export function deleteEmpty(nodeId: string) {
 
   removeNode(nodeId);
   state.focusedNodeId = prevNode?.id ?? null;
-  renderTree();
+
+  if (!removeNodeFromDOM(nodeId)) {
+    renderTree();
+  } else if (state.focusedNodeId) {
+    focusNodeText(state.focusedNodeId);
+  }
 
   deleteNode(nodeId)
     .then(() => showSaved())
@@ -459,12 +616,25 @@ export function deleteEmpty(nodeId: string) {
 
 export function toggleComplete(nodeId: string) {
   if (!state.root) return;
+  flushPendingSave(nodeId);
   const node = findNode(state.root, nodeId);
   if (!node) return;
 
   const newStatus = node.status === 'active' ? 'completed' : 'active';
   node.status = newStatus;
-  renderTree();
+
+  if (newStatus === 'completed' && !state.showCompleted) {
+    // Node disappears from view — remove it and let removeNodeFromDOM clean up.
+    if (!removeNodeFromDOM(nodeId)) renderTree();
+  } else {
+    const nodeEl = findNodeEl(nodeId);
+    if (nodeEl) {
+      nodeEl.dataset.status = newStatus;
+      nodeEl.classList.toggle('completed', newStatus === 'completed');
+    } else {
+      renderTree();
+    }
+  }
 
   updateNode(nodeId, { status: newStatus })
     .then(() => showSaved())
@@ -476,6 +646,7 @@ export function toggleComplete(nodeId: string) {
 
 export function indentNode(nodeId: string) {
   if (!state.root) return;
+  flushPendingSave(nodeId);
   const parent = findParentOf(state.root, nodeId);
   if (!parent) return;
   const idx = parent.children.findIndex(c => c.id === nodeId);
@@ -491,7 +662,24 @@ export function indentNode(nodeId: string) {
     persistCollapsedIds();
   }
   state.focusedNodeId = nodeId;
-  renderTree();
+
+  // Incremental DOM: move .node into the new parent's children container.
+  const nodeEl = findNodeEl(nodeId);
+  const newParentEl = findNodeEl(newParent.id);
+  if (nodeEl && newParentEl) {
+    const oldContainerEl = nodeEl.parentElement as HTMLElement | null;
+    const newContainerEl = getOrCreateChildrenContainer(newParentEl);
+    newContainerEl.appendChild(nodeEl);
+    setHasChildren(newParentEl, true);
+    if (oldContainerEl?.classList.contains('node-children') && oldContainerEl.children.length === 0) {
+      const oldParentNodeEl = oldContainerEl.parentElement as HTMLElement;
+      oldContainerEl.remove();
+      setHasChildren(oldParentNodeEl, false);
+    }
+    focusNodeText(nodeId);
+  } else {
+    renderTree();
+  }
 
   moveNode(nodeId, { direction: 'indent' })
     .then(() => showSaved())
@@ -503,6 +691,7 @@ export function indentNode(nodeId: string) {
 
 export function outdentNode(nodeId: string) {
   if (!state.root) return;
+  flushPendingSave(nodeId);
   const parent = findParentOf(state.root, nodeId);
   if (!parent) return;
   const grandparent = findParentOf(state.root, parent.id);
@@ -515,7 +704,22 @@ export function outdentNode(nodeId: string) {
   parent.children.splice(idx, 1);
   grandparent.children.splice(parentIdx + 1, 0, node);
   state.focusedNodeId = nodeId;
-  renderTree();
+
+  // Incremental DOM: move .node to grandparent container, after the parent's .node.
+  const nodeEl = findNodeEl(nodeId);
+  const parentEl = findNodeEl(parent.id);
+  const grandContainerEl = getParentContainerEl(grandparent.id);
+  if (nodeEl && parentEl && grandContainerEl) {
+    const oldContainerEl = nodeEl.parentElement as HTMLElement | null;
+    grandContainerEl.insertBefore(nodeEl, parentEl.nextSibling);
+    if (oldContainerEl?.classList.contains('node-children') && oldContainerEl.children.length === 0) {
+      oldContainerEl.remove();
+      setHasChildren(parentEl, false);
+    }
+    focusNodeText(nodeId);
+  } else {
+    renderTree();
+  }
 
   moveNode(nodeId, { direction: 'outdent' })
     .then(() => showSaved())
@@ -527,13 +731,21 @@ export function outdentNode(nodeId: string) {
 
 export function moveNodeUp(nodeId: string) {
   if (!state.root) return;
+  flushPendingSave(nodeId);
   const parent = findParentOf(state.root, nodeId);
   if (!parent) return;
   const idx = parent.children.findIndex(c => c.id === nodeId);
   if (idx <= 0) return; // already at top
   [parent.children[idx - 1], parent.children[idx]] = [parent.children[idx], parent.children[idx - 1]];
   state.focusedNodeId = nodeId;
-  renderTree();
+
+  const containerEl = getParentContainerEl(parent.id);
+  if (containerEl) {
+    syncChildrenDOM(parent, containerEl);
+    focusNodeText(nodeId);
+  } else {
+    renderTree();
+  }
 
   moveNode(nodeId, { direction: 'up' })
     .then(() => showSaved())
@@ -542,13 +754,21 @@ export function moveNodeUp(nodeId: string) {
 
 export function moveNodeDown(nodeId: string) {
   if (!state.root) return;
+  flushPendingSave(nodeId);
   const parent = findParentOf(state.root, nodeId);
   if (!parent) return;
   const idx = parent.children.findIndex(c => c.id === nodeId);
   if (idx === -1 || idx >= parent.children.length - 1) return; // already at bottom
   [parent.children[idx], parent.children[idx + 1]] = [parent.children[idx + 1], parent.children[idx]];
   state.focusedNodeId = nodeId;
-  renderTree();
+
+  const containerEl = getParentContainerEl(parent.id);
+  if (containerEl) {
+    syncChildrenDOM(parent, containerEl);
+    focusNodeText(nodeId);
+  } else {
+    renderTree();
+  }
 
   moveNode(nodeId, { direction: 'down' })
     .then(() => showSaved())
@@ -718,7 +938,12 @@ function showContextMenu(node: TreeNode, x: number, y: number) {
         if (state.focusedNodeId === node.id) {
           state.focusedNodeId = prevNode?.id ?? null;
         }
-        renderTree();
+
+        if (!removeNodeFromDOM(node.id)) {
+          renderTree();
+        } else if (state.focusedNodeId) {
+          focusNodeText(state.focusedNodeId);
+        }
 
         deleteNode(node.id)
           .then(() => showSaved())
