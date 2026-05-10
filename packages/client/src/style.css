@@ -572,7 +572,8 @@ button.btn-danger {
 .drop-indicator::before {
   content: '';
   position: absolute;
-  left: -3px;
+  /* Center the 8px dot on the indicator's left edge so it sits exactly on the bullet column. */
+  left: -4px;
   top: -3px;
   width: 8px;
   height: 8px;

@@ -29,6 +29,9 @@ interface DragState {
   visibleNodes: VisibleNode[];
   indent: number;
   baseLeft: number;
+  /** X offset of a bullet's center within its `.node-self`. The drop dot is placed at
+   *  `baseLeft + (depth-1)*indent + bulletOffset` so it lines up with the actual bullet column. */
+  bulletOffset: number;
   containerRight: number;
   initialScrollY: number;
 }
@@ -74,6 +77,7 @@ function onPointerDown(e: PointerEvent) {
     visibleNodes: [],
     indent: 24,
     baseLeft: 0,
+    bulletOffset: 0,
     containerRight: 0,
     initialScrollY: 0,
   };
@@ -106,13 +110,19 @@ function activateDrag() {
   dragState.indent = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--node-indent')) || 24;
   dragState.initialScrollY = window.scrollY;
 
-  // Compute baseLeft from the first visible node at depth 1
+  // Compute baseLeft and bulletOffset from the first visible node at depth 1
   const depthOneNode = dragState.visibleNodes.find(n => n.depth === 1);
   if (depthOneNode) {
     const el = document.querySelector(`.node[data-id="${CSS.escape(depthOneNode.id)}"]`);
     const selfEl = el?.querySelector(':scope > .node-self') as HTMLElement | null;
     if (selfEl) {
-      dragState.baseLeft = selfEl.getBoundingClientRect().left;
+      const selfRect = selfEl.getBoundingClientRect();
+      dragState.baseLeft = selfRect.left;
+      const bulletEl = selfEl.querySelector(':scope > .node-bullet') as HTMLElement | null;
+      if (bulletEl) {
+        const bulletRect = bulletEl.getBoundingClientRect();
+        dragState.bulletOffset = (bulletRect.left + bulletRect.width / 2) - selfRect.left;
+      }
     }
   }
 
@@ -282,8 +292,9 @@ function onPointerMove(e: PointerEvent) {
   // Compute valid depth range
   const { min, max } = getDepthRange(above, below);
 
-  // Map clientX to depth
-  const rawDepth = 1 + (e.clientX - dragState.baseLeft) / dragState.indent;
+  // Map clientX to depth, anchored on the bullet column so the cursor "lives in"
+  // the column it's targeting (rather than the row's left edge, which sits ~54px left of any bullet).
+  const rawDepth = 1 + (e.clientX - dragState.baseLeft - dragState.bulletOffset) / dragState.indent;
   const chosenDepth = Math.max(min, Math.min(max, Math.round(rawDepth)));
 
   // Compute drop target
@@ -299,12 +310,13 @@ function onPointerMove(e: PointerEvent) {
     return;
   }
 
-  // Position indicator
+  // Position indicator: dot lands on the bullet column for the chosen depth,
+  // line extends right to the container edge.
   const gapY = above
     ? (above.bottom - window.scrollY)   // viewport-relative bottom of node above
     : (below!.top - window.scrollY);    // viewport-relative top of node below
 
-  const indicatorLeft = dragState.baseLeft + (chosenDepth - 1) * dragState.indent;
+  const indicatorLeft = dragState.baseLeft + (chosenDepth - 1) * dragState.indent + dragState.bulletOffset;
   const indicatorWidth = dragState.containerRight - indicatorLeft;
 
   dragState.indicator.style.display = 'block';
