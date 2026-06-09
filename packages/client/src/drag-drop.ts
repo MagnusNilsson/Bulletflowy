@@ -1,7 +1,7 @@
 import { updateNode } from './api.js';
 import { showSaved, showSaveError } from './save-indicator.js';
 import { state, findNode, findParentOf } from './state.js';
-import { renderTree } from './tree-renderer.js';
+import { renderTree, moveNodeElInDOM } from './tree-renderer.js';
 
 interface VisibleNode {
   id: string;
@@ -431,7 +431,8 @@ async function onPointerUp(_e: PointerEvent) {
 
   newParent.children.splice(newIndex, 0, node);
 
-  renderTree();
+  // Incremental DOM: move the existing element (with its subtree) instead of rebuilding everything.
+  if (!moveNodeElInDOM(newParent, nodeId)) renderTree();
 
   try {
     const update: Parameters<typeof updateNode>[1] = { parentId };

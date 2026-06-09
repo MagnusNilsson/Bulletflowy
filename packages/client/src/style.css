@@ -72,6 +72,9 @@ html, body {
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  /* No gray flash on taps; no 300ms double-tap-zoom delay on clicks (panning/pinch unaffected) */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 #app {
@@ -630,6 +633,17 @@ button.btn-danger {
 
 #save-indicator.error {
   background: var(--danger);
+}
+
+/* Touch devices have no hover — keep row controls visible so they respond to the first tap */
+@media (hover: none) {
+  .node-dots {
+    opacity: 0.5;
+  }
+
+  .node-collapse.visible {
+    opacity: 0.6;
+  }
 }
 
 /* Responsive */

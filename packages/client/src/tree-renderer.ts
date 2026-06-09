@@ -143,7 +143,7 @@ function insertNodeIntoDOM(parentNode: TreeNode, newNode: TreeNode): boolean {
   return true;
 }
 
-function focusNodeText(nodeId: string) {
+function focusNodeText(nodeId: string, caret?: 'start' | 'end') {
   const textEl = getContainer().querySelector(
     `.node[data-id="${CSS.escape(nodeId)}"] > .node-self .node-text`
   ) as HTMLElement | null;
@@ -151,6 +151,67 @@ function focusNodeText(nodeId: string) {
   document.querySelectorAll('.node-self.focused').forEach(el => el.classList.remove('focused'));
   textEl.closest('.node-self')?.classList.add('focused');
   textEl.focus();
+  if (caret) setCaret(textEl, caret === 'start');
+}
+
+function setCaret(textEl: HTMLElement, atStart: boolean) {
+  const sel = window.getSelection();
+  if (!sel || textEl.childNodes.length === 0) return;
+  const range = document.createRange();
+  range.selectNodeContents(textEl);
+  range.collapse(atStart);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+/** Build a `.node-children` container for a node's visible children, or null if there are none. */
+function renderChildren(node: TreeNode): HTMLElement | null {
+  const visible = node.children.filter(c => state.showCompleted || c.status !== 'completed');
+  if (visible.length === 0) return null;
+  const childrenEl = document.createElement('div');
+  childrenEl.className = 'node-children';
+  for (const child of visible) {
+    childrenEl.appendChild(renderNode(child));
+  }
+  return childrenEl;
+}
+
+/**
+ * Move an existing `.node` element under `parentNode` at its current model position.
+ * Returns false if the DOM is missing pieces — caller should fall back to renderTree().
+ */
+export function moveNodeElInDOM(parentNode: TreeNode, nodeId: string): boolean {
+  const nodeEl = findNodeEl(nodeId);
+  if (!nodeEl) return false;
+  let containerEl = getParentContainerEl(parentNode.id);
+  if (!containerEl) {
+    if (parentNode.id === displayRootId()) return false;
+    const parentNodeEl = findNodeEl(parentNode.id);
+    if (!parentNodeEl) return false;
+    containerEl = getOrCreateChildrenContainer(parentNodeEl);
+  }
+  const oldContainerEl = nodeEl.parentElement as HTMLElement | null;
+
+  const visible = parentNode.children.filter(c => state.showCompleted || c.status !== 'completed');
+  const idx = visible.findIndex(c => c.id === nodeId);
+  if (idx === -1) return false;
+  const nextId = visible[idx + 1]?.id;
+  const nextEl = nextId
+    ? containerEl.querySelector(`:scope > .node[data-id="${CSS.escape(nextId)}"]`)
+    : null;
+  containerEl.insertBefore(nodeEl, nextEl);
+
+  if (parentNode.id !== displayRootId()) {
+    const parentNodeEl = findNodeEl(parentNode.id);
+    if (parentNodeEl) setHasChildren(parentNodeEl, true);
+  }
+  if (oldContainerEl && oldContainerEl !== containerEl &&
+      oldContainerEl.classList.contains('node-children') && oldContainerEl.children.length === 0) {
+    const oldParentNodeEl = oldContainerEl.parentElement as HTMLElement;
+    oldContainerEl.remove();
+    setHasChildren(oldParentNodeEl, false);
+  }
+  return true;
 }
 
 export function renderTree() {
@@ -197,17 +258,9 @@ export function renderTree() {
     }
     if (textEl) {
       textEl.focus();
-      textEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      const range = document.createRange();
-      const sel = window.getSelection();
-      if (sel && textEl.childNodes.length > 0) {
-        range.selectNodeContents(textEl);
-        // Consume the one-shot cursor hint; default to end for back-compat.
-        const toStart = state.pendingCursorAt === 'start';
-        range.collapse(toStart);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
+      textEl.scrollIntoView({ block: 'nearest' });
+      // Consume the one-shot cursor hint; default to end for back-compat.
+      setCaret(textEl, state.pendingCursorAt === 'start');
     }
   }
   state.pendingCursorAt = null;
@@ -258,11 +311,14 @@ function renderNode(node: TreeNode): HTMLElement {
   if (hasVisibleChildren) {
     collapseBtn.classList.add('visible');
     if (isCollapsed) collapseBtn.classList.add('is-collapsed');
-    collapseBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleCollapse(node.id);
-    });
   }
+  // Always attach: a leaf can become a parent via incremental ops (indent/drag),
+  // which only toggle the `visible` class — they can't add listeners after the fact.
+  collapseBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!collapseBtn.classList.contains('visible')) return;
+    toggleCollapse(node.id);
+  });
   selfEl.appendChild(collapseBtn);
 
   // Bullet
@@ -323,15 +379,10 @@ function renderNode(node: TreeNode): HTMLElement {
     el.appendChild(descEl);
   }
 
-  // Children (hidden when collapsed)
+  // Children (not rendered when collapsed)
   if (hasVisibleChildren && !isCollapsed) {
-    const childrenEl = document.createElement('div');
-    childrenEl.className = 'node-children';
-    for (const child of node.children) {
-      if (!state.showCompleted && child.status === 'completed') continue;
-      childrenEl.appendChild(renderNode(child));
-    }
-    el.appendChild(childrenEl);
+    const childrenEl = renderChildren(node);
+    if (childrenEl) el.appendChild(childrenEl);
   }
 
   return el;
@@ -544,8 +595,21 @@ async function handleEnter(node: TreeNode, textEl: HTMLElement) {
     const idx = parent.children.findIndex(c => c.id === node.id);
     parent.children.splice(idx + 1, 0, newNode);
     state.focusedNodeId = newNode.id;
-    state.pendingCursorAt = 'start';
-    renderTree();
+
+    // Incremental DOM: trim the original, drop its children container, insert the new node
+    // (renderNode re-renders the stolen children under it).
+    const nodeEl = findNodeEl(node.id);
+    if (nodeEl) {
+      textEl.textContent = textBefore;
+      nodeEl.querySelector(':scope > .node-children')?.remove();
+      setHasChildren(nodeEl, false);
+    }
+    if (nodeEl && insertNodeIntoDOM(parent, newNode)) {
+      focusNodeText(newNode.id, 'start');
+    } else {
+      state.pendingCursorAt = 'start';
+      renderTree();
+    }
 
     try {
       await splitNode(node.id, textBefore, textAfter, newNode.id);
@@ -784,9 +848,45 @@ export function toggleCollapse(nodeId: string) {
   } else {
     state.collapsedIds.add(nodeId);
   }
-  if (expanding) state.focusedNodeId = nodeId;
   persistCollapsedIds();
-  renderTree();
+
+  const node = state.root ? findNode(state.root, nodeId) : null;
+  const nodeEl = findNodeEl(nodeId);
+  if (!node || !nodeEl) {
+    if (expanding) state.focusedNodeId = nodeId;
+    renderTree();
+    return;
+  }
+
+  const hasVisibleChildren = node.children.some(
+    c => state.showCompleted || c.status !== 'completed'
+  );
+  if (!hasVisibleChildren) return; // nothing to show or hide
+
+  // Only steal focus (and pop the mobile keyboard) if the user was already editing a node.
+  const wasEditing = document.activeElement?.classList.contains('node-text') ?? false;
+
+  const collapseBtn = nodeEl.querySelector(':scope > .node-self > .node-collapse');
+  nodeEl.querySelector(':scope > .node-children')?.remove();
+
+  if (expanding) {
+    nodeEl.classList.remove('collapsed');
+    collapseBtn?.classList.remove('is-collapsed');
+    const childrenEl = renderChildren(node);
+    if (childrenEl) nodeEl.appendChild(childrenEl);
+    if (wasEditing) {
+      state.focusedNodeId = nodeId;
+      focusNodeText(nodeId);
+    }
+  } else {
+    nodeEl.classList.add('collapsed');
+    collapseBtn?.classList.add('is-collapsed');
+    // If focus lived inside the collapsed subtree, it just left the DOM — move it to the collapsed node.
+    if (state.focusedNodeId && state.focusedNodeId !== nodeId && findNode(node, state.focusedNodeId)) {
+      state.focusedNodeId = nodeId;
+      if (wasEditing) focusNodeText(nodeId);
+    }
+  }
 }
 
 export function collapseAll() {
@@ -889,15 +989,8 @@ function focusCurrentNode(atStart: boolean = false) {
     document.querySelectorAll('.node-self.focused').forEach(el => el.classList.remove('focused'));
     textEl.closest('.node-self')?.classList.add('focused');
     textEl.focus();
-    textEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    const range = document.createRange();
-    const sel = window.getSelection();
-    if (sel && textEl.childNodes.length > 0) {
-      range.selectNodeContents(textEl);
-      range.collapse(atStart);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
+    textEl.scrollIntoView({ block: 'nearest' });
+    setCaret(textEl, atStart);
   }
 }
 
