@@ -723,7 +723,7 @@ export function deleteEmpty(nodeId: string) {
   if (!removeNodeFromDOM(nodeId)) {
     renderTree();
   } else if (state.focusedNodeId) {
-    focusNodeText(state.focusedNodeId);
+    focusNodeText(state.focusedNodeId, 'end');
   }
 
   deleteNode(nodeId)
@@ -1091,7 +1091,7 @@ function showContextMenu(node: TreeNode, x: number, y: number) {
         if (!removeNodeFromDOM(node.id)) {
           renderTree();
         } else if (state.focusedNodeId) {
-          focusNodeText(state.focusedNodeId);
+          focusNodeText(state.focusedNodeId, 'end');
         }
 
         deleteNode(node.id)
