@@ -214,7 +214,17 @@ export function moveNodeElInDOM(parentNode: TreeNode, nodeId: string): boolean {
   return true;
 }
 
+let renderGeneration = 0;
+/** Nodes appended per animation frame while a large tree streams in. */
+const RENDER_BUDGET = 400;
+
+interface RenderQueueItem {
+  node: TreeNode;
+  containerEl: HTMLElement;
+}
+
 export function renderTree() {
+  const generation = ++renderGeneration;
   const container = getContainer();
   while (container.firstChild) container.removeChild(container.firstChild);
 
@@ -232,41 +242,76 @@ export function renderTree() {
     c => state.showCompleted || c.status !== 'completed'
   );
 
-  if (visibleChildren.length === 0) {
-    container.appendChild(renderEmptyPlaceholder(displayRoot.id));
-  } else {
-    for (const child of visibleChildren) {
-      container.appendChild(renderNode(child));
-    }
-  }
-
   initDragDrop(container, () => onTreeChanged?.());
 
-  // Restore focus — fall back to first visible node if target is outside visible hierarchy
-  if (state.focusedNodeId) {
-    let textEl = container.querySelector(
-      `.node[data-id="${CSS.escape(state.focusedNodeId)}"] > .node-self .node-text`
-    ) as HTMLElement | null;
-    if (!textEl) {
-      // Focused node not visible — recover to first visible node
-      const firstNode = container.querySelector('.node > .node-self .node-text') as HTMLElement | null;
-      if (firstNode) {
-        const firstNodeEl = firstNode.closest('.node') as HTMLElement | null;
-        if (firstNodeEl?.dataset.id) state.focusedNodeId = firstNodeEl.dataset.id;
-        textEl = firstNode;
-      }
-    }
-    if (textEl) {
-      textEl.focus();
-      textEl.scrollIntoView({ block: 'nearest' });
-      // Consume the one-shot cursor hint; default to end for back-compat.
-      setCaret(textEl, state.pendingCursorAt === 'start');
-    }
+  if (visibleChildren.length === 0) {
+    container.appendChild(renderEmptyPlaceholder(displayRoot.id));
+    restoreFocus(container, true);
+    return;
   }
-  state.pendingCursorAt = null;
+
+  // Stream the tree in depth-first chunks: the first chunk paints the top of the
+  // document synchronously, the rest fills in one budget-sized batch per frame.
+  // A newer renderTree() call bumps the generation and abandons this stream.
+  const queue: RenderQueueItem[] = [];
+  for (let i = visibleChildren.length - 1; i >= 0; i--) {
+    queue.push({ node: visibleChildren[i], containerEl: container });
+  }
+
+  let focusRestored = false;
+  const pump = () => {
+    if (generation !== renderGeneration) return;
+    for (let budget = RENDER_BUDGET; budget > 0 && queue.length > 0; budget--) {
+      const item = queue.pop()!;
+      item.containerEl.appendChild(renderNode(item.node, queue));
+    }
+    const done = queue.length === 0;
+    if (!focusRestored) focusRestored = restoreFocus(container, done);
+    if (!done) requestAnimationFrame(pump);
+  };
+  pump();
 }
 
-function renderNode(node: TreeNode): HTMLElement {
+/**
+ * Restore focus to state.focusedNodeId after a full render, falling back to the
+ * first visible node if the target isn't in the visible hierarchy. While a
+ * streamed render is still in flight (`final` false), a missing element just
+ * means the node hasn't been appended yet — returns false so the pump retries.
+ */
+function restoreFocus(container: HTMLElement, final: boolean): boolean {
+  if (!state.focusedNodeId) {
+    state.pendingCursorAt = null;
+    return true;
+  }
+  // The user focused a node while the stream was filling in — don't steal it.
+  if (document.activeElement?.classList.contains('node-text')) {
+    state.pendingCursorAt = null;
+    return true;
+  }
+  let textEl = container.querySelector(
+    `.node[data-id="${CSS.escape(state.focusedNodeId)}"] > .node-self .node-text`
+  ) as HTMLElement | null;
+  if (!textEl) {
+    if (!final) return false;
+    // Focused node not visible — recover to first visible node
+    const firstNode = container.querySelector('.node > .node-self .node-text') as HTMLElement | null;
+    if (firstNode) {
+      const firstNodeEl = firstNode.closest('.node') as HTMLElement | null;
+      if (firstNodeEl?.dataset.id) state.focusedNodeId = firstNodeEl.dataset.id;
+      textEl = firstNode;
+    }
+  }
+  if (textEl) {
+    textEl.focus();
+    textEl.scrollIntoView({ block: 'nearest' });
+    // Consume the one-shot cursor hint; default to end for back-compat.
+    setCaret(textEl, state.pendingCursorAt === 'start');
+  }
+  state.pendingCursorAt = null;
+  return true;
+}
+
+function renderNode(node: TreeNode, queue?: RenderQueueItem[]): HTMLElement {
   const el = document.createElement('div');
   el.className = 'node';
   el.dataset.id = node.id;
@@ -381,8 +426,19 @@ function renderNode(node: TreeNode): HTMLElement {
 
   // Children (not rendered when collapsed)
   if (hasVisibleChildren && !isCollapsed) {
-    const childrenEl = renderChildren(node);
-    if (childrenEl) el.appendChild(childrenEl);
+    if (queue) {
+      // Streamed render: attach an empty container and let the pump fill it in.
+      const childrenEl = document.createElement('div');
+      childrenEl.className = 'node-children';
+      el.appendChild(childrenEl);
+      const visible = node.children.filter(c => state.showCompleted || c.status !== 'completed');
+      for (let i = visible.length - 1; i >= 0; i--) {
+        queue.push({ node: visible[i], containerEl: childrenEl });
+      }
+    } else {
+      const childrenEl = renderChildren(node);
+      if (childrenEl) el.appendChild(childrenEl);
+    }
   }
 
   return el;

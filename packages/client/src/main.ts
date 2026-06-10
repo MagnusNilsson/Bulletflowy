@@ -1,3 +1,4 @@
+import type { TreeResponse } from '@bulletflowy/shared';
 import { fetchTree, importOpml, exportOpml, importTxt, exportTxt } from './api.js';
 import { state } from './state.js';
 import { renderTree, setOnTreeChanged, zoomTo, collapseAll } from './tree-renderer.js';
@@ -8,9 +9,23 @@ import { checkAuth, setOnAuthenticated, logout, registerPasskey } from './auth.j
 import { showSaveError } from './save-indicator.js';
 import './style.css';
 
+/** Tree request fired in parallel with the auth check; consumed by the first loadTree(). */
+let initialTreePromise: Promise<TreeResponse> | null = null;
+
 async function loadTree(render = true) {
   try {
-    const data = await fetchTree(state.showCompleted);
+    const pending = initialTreePromise;
+    initialTreePromise = null;
+    let data: TreeResponse;
+    if (pending) {
+      try {
+        data = await pending;
+      } catch {
+        data = await fetchTree(state.showCompleted);
+      }
+    } else {
+      data = await fetchTree(state.showCompleted);
+    }
     state.root = data.root;
     if (render) renderTree();
   } catch (err: any) {
@@ -196,9 +211,21 @@ function init() {
 }
 
 async function start() {
-  setOnAuthenticated(() => init());
+  // Fetch the tree in parallel with the auth check — saves a serial round trip
+  // when the session is valid. Must not reload on 401 (we may not be logged in),
+  // and the promise is dropped before the auth screen takes over.
+  initialTreePromise = fetchTree(state.showCompleted, { reloadOn401: false });
+  initialTreePromise.catch(() => {}); // ignore here; loadTree refetches on failure
+  setOnAuthenticated(() => {
+    initialTreePromise = null;
+    init();
+  });
   const authenticated = await checkAuth();
-  if (authenticated) init();
+  if (authenticated) {
+    init();
+  } else {
+    initialTreePromise = null;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', start);

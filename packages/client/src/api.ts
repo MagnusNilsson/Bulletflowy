@@ -10,7 +10,7 @@ import type {
 
 const BASE = '/api';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, reloadOn401 = true): Promise<T> {
   const headers: Record<string, string> = {};
   if (options?.body) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${BASE}${path}`, {
@@ -18,7 +18,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    if (res.status === 401) {
+    if (res.status === 401 && reloadOn401) {
       // Session expired — reload to show login
       window.location.reload();
       throw new Error('Session expired');
@@ -29,8 +29,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export function fetchTree(includeCompleted: boolean): Promise<TreeResponse> {
-  return request(`/tree?includeCompleted=${includeCompleted}`);
+export function fetchTree(includeCompleted: boolean, opts?: { reloadOn401?: boolean }): Promise<TreeResponse> {
+  return request(`/tree?includeCompleted=${includeCompleted}`, undefined, opts?.reloadOn401 ?? true);
 }
 
 export function createNode(body: CreateNodeBody): Promise<NodeRecord> {

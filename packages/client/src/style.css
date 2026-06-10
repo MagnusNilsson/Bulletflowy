@@ -336,6 +336,11 @@ button.btn-danger {
 
 .node {
   position: relative;
+  /* Off-screen rows skip layout/paint entirely, and a keystroke's reflow stays
+     local instead of invalidating the whole tree. 26px ≈ one collapsed row. */
+  contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
 }
 
 .node.completed {
